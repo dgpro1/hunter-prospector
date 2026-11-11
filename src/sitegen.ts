@@ -301,27 +301,37 @@ async function ask(env: Env, engine: Engine, system: string, user: string): Prom
 
 export async function writeTexts(env: Env, facts: Facts, items: Item[], template: string, terms: string[], audience: Audience, engine: Engine = "gemini"): Promise<{ texts: Texts; usage: Usage }> {
   // Cloudflare corta las peticiones largas (error 3046): la plantilla va en trozos pequeños, de 3 en 3 a la vez
-  const size = engine === "cloudflare" ? 45 : items.length;
+  const size = engine === "cloudflare" ? (audience === "es" ? 25 : 45) : items.length;   // bilingüe = el doble de texto de salida
   const known = new Set(items.map((i) => i.id));
   const texts: Texts = {};
   let usage: Usage = {};
   const parts: Item[][] = [];
   for (let k = 0; k < items.length; k += size) parts.push(items.slice(k, k + size));
-  const one = async (part: Item[]) => {
+  // Si un trozo falla dos veces (respuesta cortada o JSON roto), se parte en dos y se reintenta cada mitad
+  const one = async (part: Item[]): Promise<{ parsed: any; u: Usage }[]> => {
     for (let attempt = 1; ; attempt++) {
       try {
         const { raw, usage: u } = await ask(env, engine, audience === "en" ? SYSTEM_EN : SYSTEM_ES, buildPrompt(facts, part, template, terms, audience));
         const parsed = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1));
-        return { parsed, u };
+        return [{ parsed, u }];
       } catch (e: any) {
-        if (attempt >= 2) throw new Error(/JSON/.test(String(e)) ? "La IA no devolvió un JSON válido" : String(e?.message ?? e));
+        if (attempt < 2) continue;
+        if (part.length > 6) {
+          const half = Math.ceil(part.length / 2);
+          return [...(await one(part.slice(0, half))), ...(await one(part.slice(half)))];
+        }
+        throw new Error(/JSON/.test(String(e)) ? "La IA no devolvió un JSON válido" : String(e?.message ?? e));
       }
     }
   };
   for (let k = 0; k < parts.length; k += 3) {
-    for (const { parsed, u } of await Promise.all(parts.slice(k, k + 3).map(one))) {
+    for (const { parsed, u } of (await Promise.all(parts.slice(k, k + 3).map(one))).flat()) {
       usage = add(usage, u);
-      for (const x of parsed.units ?? []) if (known.has(x.id)) texts[x.id] = { en: x.en ?? "", es: audience === "en" ? (x.en ?? "") : (x.es ?? "") };
+      for (const x of parsed.units ?? []) {
+        if (!known.has(x?.id)) continue;
+        const en = String(x.en ?? x.text ?? "");                  // los modelos chicos a veces devuelven "text" en vez de "en"
+        texts[x.id] = { en, es: audience === "en" ? en : String(x.es ?? "") };
+      }
     }
   }
   return { texts, usage };
