@@ -1,0 +1,29 @@
+name = "hunter-prospector"
+main = "src/index.ts"
+compatibility_date = "2025-04-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "hunter-prospector"
+database_id = "PENDIENTE" # se rellena tras `wrangler d1 create hunter-prospector`
+
+[ai]
+binding = "AI"
+
+[vars]
+# URL base del CRM Hunter AI, sin barra final (ej. https://app.tudominio.com)
+CRM_BASE_URL = "https://app.hunterai.site"
+# UUID del cliente "agencia-hunterai" (app.hunterai.site/clients/agencia-hunterai) — el slug no sirve, va el UUID
+CRM_CLIENT_ID = ""
+# Modelo de OpenRouter para redactar los mensajes
+OPENROUTER_MODEL = "anthropic/claude-sonnet-4.5"
+# Modelo de Workers AI para clasificar
+CLASSIFY_MODEL = "@cf/meta/llama-3.1-8b-instruct"
+# Opcional: JSON con los ids de etapa del CRM, ej. {"respondio":"uuid","perdido":"uuid"}
+CRM_STAGES = "{}"
+
+# Secretos (wrangler secret put NOMBRE), nunca aquí:
+#   CRM_API_TOKEN        token ol_… de una integración del CRM
+#   CRM_WEBHOOK_SECRET   whsec_… que da el CRM al crear la suscripción
+#   OPENROUTER_API_KEY
+#   PANEL_PASSWORD       contraseña del panel /panel
