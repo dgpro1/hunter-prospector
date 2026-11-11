@@ -19,6 +19,8 @@ export type Env = {
   TELEGRAM_BOT_TOKEN?: string;
   VAPID_JWK?: string;
   PUBLIC_URL: string;
+  SITE_MODEL?: string;            // modelo de OpenRouter para escribir las webs demo (si no, OPENROUTER_MODEL)
+  SOCRATA_APP_TOKEN?: string;     // opcional: más cupo en data.ct.gov
 };
 
 async function call(env: Env, path: string, init: RequestInit = {}): Promise<any> {

@@ -8,7 +8,7 @@ database_name = "hunter-prospector"
 database_id = "0907f943-58e9-41f1-b14a-1514d73ed953"
 
 [triggers]
-crons = ["*/10 * * * *"]   # Canal 1: un envío como mucho por vuelta
+crons = ["*/10 * * * *", "*/3 * * * *"]   # */10 Canal 1: un envío como mucho por vuelta · */3 Canal 3: una web demo por vuelta
 
 [ai]
 binding = "AI"

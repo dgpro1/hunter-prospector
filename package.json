@@ -5,12 +5,14 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "db:init": "wrangler d1 execute hunter-prospector --remote --file=schema.sql && wrangler d1 execute hunter-prospector --remote --file=migrations/002_crm.sql && wrangler d1 execute hunter-prospector --remote --file=migrations/003_opener_v.sql && wrangler d1 execute hunter-prospector --remote --file=migrations/004_offers.sql && wrangler d1 execute hunter-prospector --remote --file=migrations/005_demos.sql && wrangler d1 execute hunter-prospector --remote --file=migrations/006_demo_booking.sql && wrangler d1 execute hunter-prospector --remote --file=migrations/007_alerts.sql && wrangler d1 execute hunter-prospector --remote --file=migrations/008_lines.sql",
+    "db:init": "wrangler d1 execute hunter-prospector --remote --file=schema.sql && wrangler d1 execute hunter-prospector --remote --file=migrations/002_crm.sql && wrangler d1 execute hunter-prospector --remote --file=migrations/003_opener_v.sql && wrangler d1 execute hunter-prospector --remote --file=migrations/004_offers.sql && wrangler d1 execute hunter-prospector --remote --file=migrations/005_demos.sql && wrangler d1 execute hunter-prospector --remote --file=migrations/006_demo_booking.sql && wrangler d1 execute hunter-prospector --remote --file=migrations/007_alerts.sql && wrangler d1 execute hunter-prospector --remote --file=migrations/008_lines.sql && wrangler d1 execute hunter-prospector --remote --file=migrations/009_webdemos.sql",
+    "sites": "node scripts/compile-sites.mjs",
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test test/*.test.ts"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "4.20250405.0",
+    "parse5": "^7.1.2",
     "typescript": "5.6.3",
     "wrangler": "3.114.0"
   }

@@ -12,11 +12,13 @@ import { addNote, leadForChat, setStage } from "./store.ts";
 import { renderChat, renderQueue, renderSim } from "./views.ts";
 import { fillToday, rewriteOpeners, getQuota, importLeads, markLead, parseHunt, setQuota, today } from "./leads.ts";
 import { PAISES, runHunt } from "./hunt.ts";
+import { generateOne, panelRoute as websPanel, publicRoute as webPublic } from "./webdemos.ts";
 import { evolutionReady, sendFirst, setSetting, setting, tick } from "./auto.ts";
 import type { Msg } from "./timer.ts";
 import { humanDuration } from "./timer.ts";
 
 const now = () => new Date().toISOString();
+const WEBS_CRON = "*/3 * * * *";
 
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -25,6 +27,8 @@ export default {
     if (url.pathname === "/webhooks/crm" && req.method === "POST") return webhook(req, env, ctx);
     const demo = url.pathname.match(/^\/demo\/([a-z0-9-]+)(\/chat)?$/);
     if (demo) return demoRoute(req, env, ctx, demo[1], Boolean(demo[2]));
+    const web = url.pathname.match(/^\/w\/([a-z0-9-]+)(\/visto|\/quiero)?\/?$/);
+    if (web) return webPublic(req, env, web[1], web[2]);
     const asset = pwaAsset(url.pathname);
     if (asset) return asset;
     if (url.pathname === "/panel/login" && req.method === "POST") return login(req, env);
@@ -37,7 +41,12 @@ export default {
     }
     return new Response("No encontrado", { status: 404 });
   },
-  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+  async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    // Canal 3: una web demo por vuelta (cada web en su propia invocación, con su propio presupuesto de CPU)
+    if (event.cron === WEBS_CRON) {
+      ctx.waitUntil(generateOne(env).then((r) => r.slug && console.log("webdemo", r)).catch((e) => console.error("webdemo", e)));
+      return;
+    }
     ctx.waitUntil((async () => {
       // Cacerías dejadas en cola (p. ej. creadas por otra vía): una por vuelta.
       const h = await env.DB.prepare("SELECT id FROM hunts WHERE status = 'pendiente' ORDER BY created_at LIMIT 1").first<{ id: string }>();
@@ -186,6 +195,7 @@ async function panel(req: Request, url: URL, env: Env): Promise<Response> {
   }
 
   if (url.pathname.startsWith("/panel/cola")) return queue(req, url, env);
+  if (url.pathname === "/panel/webs" || url.pathname.startsWith("/panel/webs/")) return websPanel(req, url, env);
 
   if (url.pathname === "/panel/simular") {
     return new Response(renderSim(), { headers: { "Content-Type": "text/html; charset=utf-8" } });
