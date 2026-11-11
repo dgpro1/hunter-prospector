@@ -101,3 +101,43 @@ $("biz").onclick=()=>{if(!msgs.length){alert("Primero escribe tu apertura como T
 $("reset").onclick=()=>{msgs.length=0;clock=Date.now()-3*864e5;$("out").hidden=true;draw()};
 </script>`);
 }
+
+/** Cola del Prospector (Canal 1): importar cacerías, cupo diario, interruptor y los de hoy. */
+export function renderQueue(s: {
+  counts: Record<string, number>; quota: number; auto: boolean; ready: boolean; lastError: string | null;
+  nextAt: string | null; today: any[]; sentToday: number; flash: string | null;
+}): string {
+  const c = (k: string) => s.counts[k] ?? 0;
+  const rows = s.today.map((l) => `
+    <form class="card" method="post" action="/panel/cola/lead/${esc(l.phone)}">
+      <div class="head"><b>${esc(l.name)}</b><span class="muted">${esc(l.city ?? "")} · ⭐ ${esc(l.rating ?? "–")} · +${esc(l.phone)} · variante ${esc(l.variant)}</span>
+      ${l.status === "enviado" ? '<span class="chip">enviado ✓</span>' : ""}</div>
+      <textarea name="opener" rows="3" ${l.status === "enviado" ? "readonly" : ""}>${esc(l.opener)}</textarea>
+      ${l.status === "enviado" ? "" : `<div class="row">
+        ${s.ready ? '<button name="action" value="send">Enviar ahora</button>' : ""}
+        <a class="chip" target="_blank" href="https://wa.me/${esc(l.phone)}?text=${encodeURIComponent(l.opener ?? "")}">Abrir en WhatsApp</a>
+        <button class="ghost" name="action" value="enviado">Ya lo envié</button>
+        <button class="ghost" name="action" value="descartado">Saltar</button>
+        <button class="ghost" name="action" value="no_contactar">No contactar</button></div>`}
+    </form>`).join("") || '<p class="muted">Nada para hoy todavía. Importa una cacería y pulsa "Armar el día".</p>';
+  return page("Cola", "cola", `
+${s.flash ? `<p class="card">${esc(s.flash)}</p>` : ""}
+<section class="card">
+  <div class="head"><b>Envío automático</b>
+    <span class="chip"><i class="dot" style="background:${s.auto ? COLORS.verde : COLORS.gris}"></i>${s.auto ? "Encendido" : "Apagado"}</span></div>
+  ${s.ready ? "" : '<p class="muted">Falta conectar Evolution (EVOLUTION_URL, EVOLUTION_INSTANCE y EVOLUTION_API_KEY en Cloudflare). Mientras, usa "Abrir en WhatsApp".</p>'}
+  ${s.lastError ? `<p class="muted">Último error: ${esc(s.lastError)}</p>` : ""}
+  <p class="muted" style="margin:0">Lunes a sábado, 9:00–19:00 hora del negocio, un mensaje cada 12–25 min. Si un envío falla, se apaga solo.${s.nextAt ? " Próximo envío desde: " + esc(new Date(s.nextAt).toLocaleString("es-CO", { timeZone: "America/Bogota" })) + "." : ""}</p>
+  <form method="post" action="/panel/cola/auto" class="row"><button name="on" value="${s.auto ? "off" : "on"}" ${!s.ready && !s.auto ? "disabled" : ""}>${s.auto ? "Apagar" : "Encender"}</button></form>
+</section>
+<section class="card"><b>Hoy · ${s.sentToday} de ${s.quota} enviados</b>
+  <div class="chips"><span class="chip">En cola: ${c("cola")}</span><span class="chip">Hoy: ${c("hoy")}</span><span class="chip">Enviados: ${c("enviado")}</span><span class="chip">Descartados: ${c("descartado")}</span></div>
+  <form method="post" action="/panel/cola/quota" class="row" style="align-items:center"><label>Cupo diario <input type="number" name="quota" min="1" max="60" value="${s.quota}"></label><button class="ghost">Guardar</button></form>
+  <form method="post" action="/panel/cola/fill"><button>Armar el día</button></form>
+</section>
+<section class="card"><b>Importar cacería del Cazador</b>
+  <p class="muted" style="margin:0">Sube el .json o .csv de la carpeta <code>resultados</code>. Se quitan los repetidos y los de No contactar.</p>
+  <form method="post" action="/panel/cola/import" enctype="multipart/form-data" class="row" style="align-items:center;flex-wrap:wrap"><input type="file" name="file" accept=".json,.csv" required><button>Importar</button></form>
+</section>
+<section><h2>Los de hoy</h2>${rows}</section>`);
+}

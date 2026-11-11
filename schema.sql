@@ -41,3 +41,24 @@ CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,                         -- crm_client_id: lo aprende del primer webhook
   value TEXT NOT NULL
 );
+
+-- Canal 1 · Prospector: leads del Cazador en cola, con cupo diario
+CREATE TABLE IF NOT EXISTS leads (
+  phone TEXT PRIMARY KEY,                       -- solo dígitos con código de país (wa.me)
+  name TEXT NOT NULL,
+  niche TEXT,
+  city TEXT,
+  web TEXT,
+  category TEXT,
+  rating REAL,
+  confidence TEXT,                              -- alta | media | baja (del Cazador)
+  maps_url TEXT,
+  batch TEXT,                                   -- archivo de la cacería
+  status TEXT NOT NULL DEFAULT 'cola',          -- cola | hoy | enviado | descartado
+  variant TEXT,                                 -- A pregunta-espejo | B demo directa
+  opener TEXT,
+  day TEXT,                                     -- día (YYYY-MM-DD) en que entró al cupo
+  created_at TEXT NOT NULL,
+  sent_at TEXT
+);
+CREATE INDEX IF NOT EXISTS leads_status ON leads(status, day);

@@ -7,6 +7,9 @@ binding = "DB"
 database_name = "hunter-prospector"
 database_id = "0907f943-58e9-41f1-b14a-1514d73ed953"
 
+[triggers]
+crons = ["*/10 * * * *"]   # Canal 1: un envío como mucho por vuelta
+
 [ai]
 binding = "AI"
 
@@ -23,6 +26,9 @@ CLASSIFY_MODEL = "@cf/meta/llama-3.1-8b-instruct"
 CRM_STAGES = "{}"
 
 # Secretos (wrangler secret put NOMBRE), nunca aquí:
+#   EVOLUTION_URL        URL del servidor de Evolution (Canal 1)
+#   EVOLUTION_INSTANCE   instancia del número QR (hunterai-<id del canal>)
+#   EVOLUTION_API_KEY    token propio de ESA instancia (no la clave global de Evolution)
 #   CRM_API_TOKEN        token ol_… de una integración del CRM
 #   CRM_WEBHOOK_SECRET   whsec_… que da el CRM al crear la suscripción
 #   OPENROUTER_API_KEY

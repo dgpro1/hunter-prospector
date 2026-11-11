@@ -13,6 +13,9 @@ export type Env = {
   OPENROUTER_MODEL: string;
   CLASSIFY_MODEL: string;
   PANEL_PASSWORD: string;
+  EVOLUTION_URL: string;
+  EVOLUTION_INSTANCE: string;
+  EVOLUTION_API_KEY: string;
 };
 
 async function call(env: Env, path: string, init: RequestInit = {}): Promise<any> {

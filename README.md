@@ -39,6 +39,13 @@ En el CRM:
 - `CRM_CLIENT_ID` es opcional: si queda vacío, el worker aprende el UUID del primer webhook firmado. Si quieres, los ids de etapa en
   `CRM_STAGES` (`{"respondio":"…","perdido":"…"}`).
 
+## v1 · Canal 1 (Prospector automático)
+
+1. Sube la cacería del Cazador (`.json` o `.csv`) en `/panel/cola`. Se quitan repetidos y No contactar.
+2. "Armar el día" toma los mejores según el cupo diario y les redacta la apertura (variante A pregunta-espejo / B demo directa).
+3. Con el envío automático encendido, el cron (cada 10 min) manda UNO por vuelta por Evolution, lunes a sábado de 9 a 19 h en la hora del negocio, con 12–25 min entre mensajes. Si falla, se apaga solo.
+4. Secretos extra: `EVOLUTION_URL`, `EVOLUTION_INSTANCE` (hunterai-<id del canal>) y `EVOLUTION_API_KEY` (token de esa instancia, no la clave global).
+
 ## Pruebas
 
 ```bash
