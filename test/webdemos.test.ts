@@ -65,3 +65,14 @@ test("buildSite en inglés oculta el selector de idioma y falla si el redactor d
   const lazy = async () => ({ texts: {}, usage: {} });
   await assert.rejects(buildSite({} as any, SITES, { name: "X LLC", sector: "otro" }, "es", lazy as any), /negocio de ejemplo/);
 });
+
+test("siglas y limpieza de datos de ejemplo al servir", async () => {
+  const { cleanSample } = await import("../src/sitegen.ts");
+  assert.equal(brandName("RMA INNOVATION LLC").brand, "RMA Innovation");
+  assert.equal(brandName("SOL TAX SERVICES LLC").brand, "Sol Tax Services");
+  const html = `<a href="tel:+18605550142">(860) 555-0142</a><span>HIC.0000000</span><p>41.661° N · 72.780° W — Waterbury, CT</p><b>L&amp;A</b>`;
+  const out = cleanSample(html, "x-1", "Vertex Construction", true);
+  assert.ok(out.includes('href="/w/x-1/quiero"') && out.includes(">Message us<"));
+  assert.ok(!out.includes("555") && !out.includes("0000000") && !out.includes("°"));
+  assert.ok(out.includes("<p>Waterbury, CT</p>") && out.includes("<b>VC</b>"));
+});

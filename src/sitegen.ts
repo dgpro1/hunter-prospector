@@ -55,6 +55,8 @@ export function displayName(raw: unknown): string {
   return name.toLowerCase().split(" ").map((w, i) => {
     if (["llc", "inc", "corp", "ltd", "llp"].includes(w.replace(/\./g, ""))) return w.toUpperCase();
     if (i > 0 && LOWER_WORDS.has(w)) return w;
+    // Siglas: "RMA", "JC", "ABC" se quedan en mayúsculas (pero "Tax", "Sol", "Mi" no)
+    if (/^[a-z]{2,3}$/.test(w) && !LOWER_WORDS.has(w) && !/^[^aeiou][aeiouy][^aeiou]?$/.test(w)) return w.toUpperCase();
     return w.charAt(0).toUpperCase() + w.slice(1);
   }).join(" ");
 }
@@ -207,9 +209,12 @@ Rewrite every item that refers to the sample business so it fits the real busine
 - Anything specific to the sample must go: its name, the names of its owners and staff, its street address, its city and nearby towns, its founding story and years, its specific jobs, dishes or services, its photo captions.
 - Keep unchanged (so: do not return) generic interface labels that fit any business, like "Menu", "Call", "Send request", "FAQ".
 - Brand: use the real brand wherever the sample brand appears (logo, titles, footer); the legal name only in the copyright line.
-- Place: for town lists use real towns near the real city. Never write a street address; say the town instead. Map and directions texts refer to the real city.
+- Place: EVERY town list (service area, nearby towns, project locations) must contain only real towns within about 30 minutes of the real city; replace all sample towns. Never write a street address; say the town instead. Map and directions texts refer to the real city.
 - Services, menus, prices, FAQ: make them right for the real activity. If the name reveals a specialty (a cuisine, a trade like painting or tile, a country), follow it. Prices must be realistic for the business's state and keep the original format.
 - The business is new: NEVER invent facts that could be false claims — no years of experience, numbers of clients or jobs, awards, certifications, ratings or reviews. Keep placeholders such as license numbers ("HIC.0000000", "#0000000") exactly as they are. Opening hours: keep them exactly as they are.
+- Licenses, insurance, registrations: the business is brand new and we do NOT know whether it is licensed, registered or insured. Never claim it ("Licensed", "Fully insured", "CT registered", "HIC #", "Ours is right here", "certificate of insurance"). Rewrite those items as neutral, true statements such as "Ask us about licensing and insurance" or "Written estimate before any work". Leave license number placeholders untouched.
+- Story: never invent the owner's background, experience, training or a first-person quote from the owner. Describe what the business offers instead.
+- Timelines must be realistic for the activity (a new house takes months, not weeks).
 - People: the owners are unknown. Don't name anyone; write as "we", "our team" or "the owner". Where the sample shows a person's name as a caption or signature, use the brand or a role instead.
 - Keep each text about the same length as the original (±20%) and in the same role (a headline stays a short headline).
 - HTML: some texts contain inline tags (<em>, <br>, <span class="…">…). Keep exactly the same tags with the same attributes, in the same structure; only change the words. Write & as &amp;.
@@ -366,3 +371,21 @@ export async function buildSite(env: Env, sites: Record<string, Compiled>, busin
   if (audience === "en") html = html.replace(/<\/head>/i, `${ENGLISH_ONLY_CSS}</head>`);
   return { html, template, usage };
 }
+
+/**
+ * Quita lo que la plantilla trae de ejemplo y no se puede inventar: teléfono 555 (→ "La quiero"), número de licencia
+ * de muestra, coordenadas del pueblo de ejemplo y el monograma de los dueños de ejemplo. Se hace al servir, así vale
+ * también para las webs ya hechas.
+ */
+export function cleanSample(page: string, slug: string, brand: string, en: boolean): string {
+  const ask = `/w/${slug}/quiero`;
+  const label = en ? "Message us" : "Escríbenos";
+  const initials = brand.split(/\s+/).filter((w) => /^\p{L}/u.test(w)).slice(0, 2).map((w) => w[0].toUpperCase()).join("") || "★";
+  return page
+    .replace(/href="(?:tel|sms):[^"]*"/gi, `href="${ask}"`)
+    .replace(/\+1[ .-]?\(?\d{3}\)?[ .-]?555[ .-]?01\d\d|\(?\b\d{3}\)?[ .-]?555[ .-]?01\d\d\b/g, label)
+    .replace(/(?:HIC\.|#)0000000/g, "")
+    .replace(/\d{1,3}\.\d{2,4}°\s?[NS][\s·,]*\d{1,3}\.\d{2,4}°\s?[EW](?:\s*[—–-]\s*)?/g, "")
+    .replace(/>L&amp;A</g, `>${escText(initials)}<`);
+}
+

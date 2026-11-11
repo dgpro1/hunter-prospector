@@ -3,7 +3,7 @@
 // Si el dueño pulsa "La quiero" y deja su WhatsApp, entra al CRM como ficha con origen "webdemo".
 import type { Env } from "./crm.ts";
 import { classifyRegistrations, fetchRegistrations, FREE_MAIL, type Candidate } from "./ctRegistry.ts";
-import { brandName, buildSite, chooseTemplate, ENGINE_LABEL, pickEngine, writeTexts, type Engine } from "./sitegen.ts";
+import { brandName, buildSite, chooseTemplate, cleanSample, ENGINE_LABEL, pickEngine, writeTexts, type Engine } from "./sitegen.ts";
 import { setting, setSetting } from "./auto.ts";
 import { SITES } from "./sites/index.ts";
 import { CSS, esc } from "./panel.ts";
@@ -141,7 +141,7 @@ export function decorate(page: string, d: { slug: string; name: string; audience
 </div>
 ${preview ? "" : `<script>setTimeout(function(){try{navigator.sendBeacon("/w/${esc(d.slug)}/visto")}catch(e){}},1500)</script>`}
 `;
-  return page
+  return cleanSample(page, d.slug, brandName(d.name).brand, en)
     .replace(/<head([^>]*)>/i, (m) => `${m}\n<meta name="robots" content="noindex, nofollow">`)
     .replace(/<\/body>(?![\s\S]*<\/body>)/i, `${bar}</body>`);
 }
