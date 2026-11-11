@@ -38,7 +38,7 @@ export type ImportResult = { raw: number; kept: number; added: number; repeated:
 
 export async function importCT(env: Env, { days = 7, latinOnly = false, max = 150 } = {}): Promise<ImportResult> {
   const since = new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
-  const rows = await fetchRegistrations(since, 2000, env.SOCRATA_APP_TOKEN);
+  const rows = await fetchRegistrations(since, 2500, env.SOCRATA_APP_TOKEN);
   const { leads, stats } = classifyRegistrations(rows, { latinOnly });
   // Primero los de un sector con plantilla propia, luego el resto; dentro, los más nuevos
   const ranked = [...leads].sort((a, b) => Number(b.sector !== "otro") - Number(a.sector !== "otro") || String(b.registered).localeCompare(String(a.registered)));
@@ -73,11 +73,15 @@ export async function importCT(env: Env, { days = 7, latinOnly = false, max = 15
 // ─── 2. Hacer las webs ───────────────────────────────────────────────────────
 
 /** Pone en cola las N mejores "nuevas" (sector con plantilla primero, las más recientes). */
+/** "Solo latinos" viene encendido salvo que Daniel lo apague en el panel (settings.webs_latino = off). */
+export const latinOnly = async (env: Env) => (await setting(env, "webs_latino")) !== "off";
+
 export async function queueBest(env: Env, n: number): Promise<number> {
+  const latin = await latinOnly(env);
   const r = await env.DB.prepare(
     `UPDATE webdemos SET status = 'en_cola', updated_at = ?1 WHERE slug IN (
-       SELECT slug FROM webdemos WHERE status = 'nueva' ORDER BY (sector != 'otro') DESC, registered DESC LIMIT ?2)`,
-  ).bind(now(), Math.max(1, Math.min(50, n))).run();
+       SELECT slug FROM webdemos WHERE status = 'nueva' AND (latino = 1 OR ?3 = 0) ORDER BY (sector != 'otro') DESC, registered DESC LIMIT ?2)`,
+  ).bind(now(), Math.max(1, Math.min(50, n)), latin ? 1 : 0).run();
   return r.meta.changes ?? 0;
 }
 
@@ -113,7 +117,7 @@ export async function runOrder(env: Env): Promise<string | null> {
   if (!row) return null;
   await env.DB.prepare("DELETE FROM settings WHERE key = 'webs_encargo'").run();
   const o = JSON.parse(row.value || "{}");
-  const r = await importCT(env, { days: Number(o.days) || 7, latinOnly: Boolean(o.latino) });
+  const r = await importCT(env, { days: Number(o.days) || 14, latinOnly: o.latino === undefined ? await latinOnly(env) : Boolean(o.latino) });
   const queued = await queueBest(env, Number(o.n) || 10);
   const msg = `encargo: ${r.raw} altas, ${r.kept} pasan filtros, ${r.added} nuevas, ${r.withWeb} con web; ${queued} en cola`;
   await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('webs_encargo_resultado', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(msg).run();
@@ -207,7 +211,9 @@ export async function panelRoute(req: Request, url: URL, env: Env): Promise<Resp
     const f = await req.formData();
     if (url.pathname === "/panel/webs/traer") {
       try {
-        const r = await importCT(env, { days: Number(f.get("days") ?? 7) || 7, latinOnly: f.get("latino") === "on" });
+        const latin = f.get("latino") === "on";
+        await setSetting(env, "webs_latino", latin ? "on" : "off");
+        const r = await importCT(env, { days: Number(f.get("days") ?? 14) || 14, latinOnly: latin });
         return back(`Registro: ${r.raw} altas con correo, ${r.kept} pasan los filtros, ${r.added} nuevas en tu lista (${r.repeated} ya estaban, ${r.withWeb} ya tienen web).`);
       } catch (e: any) { return back(`No pude leer el registro: ${e.message}`); }
     }
@@ -238,7 +244,8 @@ async function renderWebs(env: Env, msg: string | null): Promise<string> {
   const cost = counts.results.reduce((s, r) => s + (r.c ?? 0), 0);
   const ready = await env.DB.prepare("SELECT slug, name, email, city, sector, template, audience, views, lead, cost, generated_at FROM webdemos WHERE status = 'lista' ORDER BY generated_at DESC LIMIT 100").all<any>();
   const work = await env.DB.prepare("SELECT slug, name, city, sector, status, error, updated_at FROM webdemos WHERE status IN ('en_cola','generando','error') ORDER BY updated_at DESC LIMIT 50").all<any>();
-  const fresh = await env.DB.prepare("SELECT slug, name, email, city, sector, registered, latino, notes FROM webdemos WHERE status = 'nueva' ORDER BY (sector != 'otro') DESC, registered DESC LIMIT 40").all<any>();
+  const latin = await latinOnly(env);
+  const fresh = await env.DB.prepare(`SELECT slug, name, email, city, sector, registered, latino, notes FROM webdemos WHERE status = 'nueva' ${latin ? "AND latino = 1" : ""} ORDER BY (sector != 'otro') DESC, registered DESC LIMIT 40`).all<any>();
   const n = (k: string) => by[k]?.n ?? 0;
   const chosen = await setting(env, "webs_ia");
   const engine = pickEngine(env, chosen);
@@ -264,7 +271,7 @@ ${msg ? `<div class="msg">${esc(msg)}</div>` : ""}
 <div class="kpis"><div class="kpi"><b>${n("nueva")}</b>Por hacer</div><div class="kpi"><b>${n("en_cola") + n("generando")}</b>Haciéndose</div><div class="kpi"><b>${n("lista")}</b>Listas</div><div class="kpi"><b>${n("error")}</b>Con error</div><div class="kpi"><b>$${cost.toFixed(2)}</b>Gastado en IA</div></div>
 <div class="card"><b>1 · Traer negocios nuevos de Connecticut</b>
 <p class="muted">Altas activas con correo del registro público (data.ct.gov). Quita gestorías, holdings y los que ya tienen web.</p>
-<form method="post" action="/panel/webs/traer" class="row" style="flex-wrap:wrap;align-items:center"><label>Últimos <input name="days" type="number" value="7" min="1" max="30" style="width:70px"> días</label><label><input type="checkbox" name="latino"> Solo latinos</label><button>Traer altas</button></form></div>
+<form method="post" action="/panel/webs/traer" class="row" style="flex-wrap:wrap;align-items:center"><label>Últimos <input name="days" type="number" value="14" min="1" max="30" style="width:70px"> días</label><label><input type="checkbox" name="latino" ${latin ? "checked" : ""}> Solo latinos (web bilingüe)</label><button>Traer altas</button></form></div>
 <div class="card"><b>2 · Hacer webs</b><p class="muted">La IA adapta una plantilla a cada negocio (los latinos reciben web bilingüe). Una cada 3 minutos. Nada se envía por correo todavía.</p>
 ${engineForm}<form method="post" action="/panel/webs/cola" class="row" style="align-items:center"><label>Hacer las mejores <input name="n" type="number" value="10" min="1" max="50" style="width:70px"></label><button>Poner en cola</button></form></div>
 <section><h2>Listas (${n("lista")})</h2><div class="t"><table>${readyRows || '<tr><td class="muted">Todavía no hay webs listas.</td></tr>'}</table></div></section>
