@@ -155,6 +155,7 @@ async function panel(req: Request, url: URL, env: Env): Promise<Response> {
     return new Response(renderSim(), { headers: { "Content-Type": "text/html; charset=utf-8" } });
   }
   if (url.pathname === "/panel/simular/api" && req.method === "POST") return simulate(req, env);
+  if (url.pathname === "/panel/simular/negocio" && req.method === "POST") return fakeBusiness(req, env);
 
   const chat = url.pathname.match(/^\/panel\/chat\/([\w-]+)(\/messages\.json|\/reply)?$/);
   if (chat) {
@@ -291,4 +292,32 @@ async function queue(req: Request, url: URL, env: Env): Promise<Response> {
     flash: url.searchParams.get("m"),
   });
   return new Response(html, { headers: { "Content-Type": "text/html; charset=utf-8" } });
+}
+
+const PERSONAS: Record<string, string> = {
+  recepcion: "Eres la recepcionista de una clínica dental. Contestas breve y algo desconfiada, preguntas quién es y qué quiere.",
+  dueno: "Eres el dueño de una clínica dental. Contestas directo, con poco tiempo, curioso pero escéptico.",
+  no: "Eres el encargado de un negocio. No te interesa y lo dices con educación en una frase.",
+  interesado: "Eres el dueño de un negocio y te interesa; preguntas cómo funciona y cuánto cuesta.",
+};
+
+/** La IA hace de negocio en el simulador. */
+async function fakeBusiness(req: Request, env: Env): Promise<Response> {
+  const body: any = await req.json().catch(() => null);
+  const history: Msg[] = Array.isArray(body?.messages) ? body.messages.slice(-20) : [];
+  const persona = PERSONAS[String(body?.persona)] ?? PERSONAS.recepcion;
+  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${env.OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: env.OPENROUTER_MODEL, max_tokens: 150,
+      messages: [
+        { role: "system", content: `${persona} Te escribe por WhatsApp alguien que no conoces. Responde como por WhatsApp: una o dos frases, sin markdown. Devuelve solo tu mensaje.` },
+        ...history.map((m) => ({ role: m.role === "user" ? "assistant" : "user", content: m.content })),
+      ],
+    }),
+  });
+  if (!res.ok) return Response.json({ error: `OpenRouter → ${res.status}: ${(await res.text()).slice(0, 200)}` }, { status: 502 });
+  const data: any = await res.json();
+  return Response.json({ text: String(data?.choices?.[0]?.message?.content ?? "").trim() });
 }

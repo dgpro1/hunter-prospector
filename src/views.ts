@@ -66,9 +66,12 @@ export function renderSim(): string {
 <p class="muted" style="margin:0">Escribe tu apertura como <b>Tú</b>, luego contesta como <b>Negocio</b>. El worker usa el mismo cronómetro, clasificador y redactor que con un chat real, pero no toca el CRM ni guarda nada.</p></section>
 <div class="chat" id="chat"><p class="muted">Empieza con tu apertura.</p></div>
 <div class="card">
-  <textarea id="txt" rows="3" placeholder="Escribe un mensaje…"></textarea>
+  <textarea id="txt" rows="3" placeholder="Tu apertura como Daniel de Hunter AI (ej. Hola, ¿hablo con Clínica Sonrisa? Soy Daniel de Hunter AI…)"></textarea>
   <label>El negocio tarda <input type="number" id="delay" value="45" min="0"> minutos en contestar</label>
   <div class="row"><button id="me">Enviar como Tú</button><button class="ghost" id="biz">Responder como Negocio</button><button class="ghost" id="reset">Reiniciar</button></div>
+  <div class="row" style="flex-wrap:wrap;align-items:center"><label>O que conteste la IA como
+    <select id="persona"><option value="recepcion">Recepcionista</option><option value="dueno">Dueño</option><option value="interesado">Interesado</option><option value="no">No me interesa</option></select></label>
+    <button class="ghost" id="ai">Que conteste la IA</button></div>
 </div>
 <div class="card" id="out" hidden></div>
 <script>
@@ -99,6 +102,16 @@ async function ask(){
 }
 $("me").onclick=()=>add("assistant");
 $("biz").onclick=()=>{if(!msgs.length){alert("Primero escribe tu apertura como Tú");return}if(add("user"))ask()};
+$("ai").onclick=async()=>{
+  if(!msgs.length){alert("Primero escribe tu apertura como Tú");return}
+  const b=$("ai");b.disabled=true;b.textContent="El negocio escribe…";
+  try{
+    const r=await fetch("/panel/simular/negocio",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messages:msgs,persona:$("persona").value})});
+    const d=await r.json();
+    if(!r.ok||!d.text){alert(d.error||"Sin respuesta");return}
+    $("txt").value=d.text;add("user");ask();
+  }finally{b.disabled=false;b.textContent="Que conteste la IA"}
+};
 $("reset").onclick=()=>{msgs.length=0;clock=Date.now()-3*864e5;$("out").hidden=true;draw()};
 </script>`);
 }
