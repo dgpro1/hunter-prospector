@@ -118,7 +118,7 @@ export async function runOrder(env: Env): Promise<string | null> {
   await env.DB.prepare("DELETE FROM settings WHERE key = 'webs_encargo'").run();
   const o = JSON.parse(row.value || "{}");
   const r = await importCT(env, { days: Number(o.days) || 14, latinOnly: o.latino === undefined ? await latinOnly(env) : Boolean(o.latino) });
-  const queued = await queueBest(env, Number(o.n) || 10);
+  const queued = o.n === 0 ? 0 : await queueBest(env, Number(o.n) || 10);   // n: 0 → solo traer, sin hacer webs
   const msg = `encargo: ${r.raw} altas, ${r.kept} pasan filtros, ${r.added} nuevas, ${r.withWeb} con web; ${queued} en cola`;
   await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('webs_encargo_resultado', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(msg).run();
   return msg;
