@@ -234,28 +234,81 @@ For this business:
 
 export type Usage = { prompt_tokens?: number; completion_tokens?: number; cost?: number };
 
-export async function writeTexts(env: Env, facts: Facts, items: Item[], template: string, terms: string[], audience: Audience): Promise<{ texts: Texts; usage: Usage }> {
-  const model = env.SITE_MODEL || env.OPENROUTER_MODEL;
+export type Engine = "gemini" | "cloudflare" | "openrouter";
+export const ENGINE_LABEL: Record<Engine, string> = {
+  gemini: "Gemini (gratis con clave de AI Studio)",
+  cloudflare: "Cloudflare Workers AI (gratis, ~6 webs al día)",
+  openrouter: "OpenRouter (de pago)",
+};
+const CF_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct";
+
+/** Motor por defecto: el elegido en el panel; si no, Gemini cuando hay clave; si no, el gratis de Cloudflare. */
+export function pickEngine(env: Env, chosen: string | null): Engine {
+  if (chosen === "gemini" && env.GEMINI_API_KEY) return "gemini";
+  if (chosen === "openrouter" && env.OPENROUTER_API_KEY) return "openrouter";
+  if (chosen === "cloudflare") return "cloudflare";
+  return env.GEMINI_API_KEY ? "gemini" : "cloudflare";
+}
+
+/** Manda un prompt al motor y devuelve el texto de la respuesta. */
+async function ask(env: Env, engine: Engine, system: string, user: string): Promise<{ raw: string; usage: Usage }> {
+  if (engine === "gemini") {
+    const model = env.GEMINI_MODEL || "gemini-2.5-flash";
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY! },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: system }] },
+        contents: [{ role: "user", parts: [{ text: user }] }],
+        generationConfig: { temperature: 0.6, maxOutputTokens: 32000, responseMimeType: "application/json", thinkingConfig: { thinkingBudget: 0 } },
+      }),
+    });
+    if (!res.ok) throw new Error(`Gemini → ${res.status} ${(await res.text()).slice(0, 200)}`);
+    const data: any = await res.json();
+    const c = data.candidates?.[0];
+    if (c?.finishReason === "MAX_TOKENS") throw new Error("La respuesta de la IA se cortó antes de terminar");
+    const raw = (c?.content?.parts ?? []).map((p: any) => p.text ?? "").join("");
+    return { raw, usage: { prompt_tokens: data.usageMetadata?.promptTokenCount, completion_tokens: data.usageMetadata?.candidatesTokenCount, cost: 0 } };
+  }
+  if (engine === "cloudflare") {
+    const out: any = await env.AI.run(CF_MODEL as any, {
+      messages: [{ role: "system", content: system }, { role: "user", content: user }],
+      max_tokens: 8000, temperature: 0.6, response_format: { type: "json_object" },
+    } as any);
+    const r = out?.response;
+    return { raw: typeof r === "string" ? r : JSON.stringify(r ?? {}), usage: { prompt_tokens: out?.usage?.prompt_tokens, completion_tokens: out?.usage?.completion_tokens, cost: 0 } };
+  }
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${env.OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model, max_tokens: 32000, temperature: 0.6, usage: { include: true },
+      model: env.SITE_MODEL || env.OPENROUTER_MODEL, max_tokens: 32000, temperature: 0.6, usage: { include: true },
       response_format: { type: "json_object" },
-      messages: [{ role: "system", content: audience === "en" ? SYSTEM_EN : SYSTEM_ES }, { role: "user", content: buildPrompt(facts, items, template, terms, audience) }],
+      messages: [{ role: "system", content: system }, { role: "user", content: user }],
     }),
   });
   if (!res.ok) throw new Error(`OpenRouter → ${res.status} ${(await res.text()).slice(0, 200)}`);
   const data: any = await res.json();
   const choice = data.choices?.[0];
   if (choice?.finish_reason === "length") throw new Error("La respuesta de la IA se cortó antes de terminar");
-  const raw = String(choice?.message?.content ?? "");
-  let parsed: any;
-  try { parsed = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1)); } catch { throw new Error("La IA no devolvió un JSON válido"); }
+  return { raw: String(choice?.message?.content ?? ""), usage: data.usage ?? {} };
+}
+
+export async function writeTexts(env: Env, facts: Facts, items: Item[], template: string, terms: string[], audience: Audience, engine: Engine = "gemini"): Promise<{ texts: Texts; usage: Usage }> {
+  // Cloudflare: modelo más chico y salida limitada → la plantilla va por partes
+  const size = engine === "cloudflare" ? 110 : items.length;
   const known = new Set(items.map((i) => i.id));
   const texts: Texts = {};
-  for (const u of parsed.units ?? []) if (known.has(u.id)) texts[u.id] = { en: u.en ?? "", es: audience === "en" ? (u.en ?? "") : (u.es ?? "") };
-  return { texts, usage: data.usage ?? {} };
+  let usage: Usage = {};
+  for (let k = 0; k < items.length; k += size) {
+    const part = items.slice(k, k + size);
+    const { raw, usage: u } = await ask(env, engine, audience === "en" ? SYSTEM_EN : SYSTEM_ES, buildPrompt(facts, part, template, terms, audience));
+    usage = add(usage, u);
+    let parsed: any;
+    try { parsed = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1)); } catch { throw new Error("La IA no devolvió un JSON válido"); }
+    for (const x of parsed.units ?? []) if (known.has(x.id)) texts[x.id] = { en: x.en ?? "", es: audience === "en" ? (x.en ?? "") : (x.es ?? "") };
+  }
+  return { texts, usage };
 }
 
 const add = (a: Usage, b: Usage): Usage => ({ prompt_tokens: (a.prompt_tokens ?? 0) + (b.prompt_tokens ?? 0), completion_tokens: (a.completion_tokens ?? 0) + (b.completion_tokens ?? 0), cost: (a.cost ?? 0) + (b.cost ?? 0) });
@@ -269,7 +322,7 @@ function englishOnly(audience: Audience, items: Item[], texts: Texts): Texts {
 }
 
 /** Hace la web de un negocio. Si quedan palabras del ejemplo, reescribe solo esas una vez; si siguen, falla (nunca se publica una web con otro negocio). */
-export async function buildSite(env: Env, sites: Record<string, Compiled>, business: Business, audience: Audience, write = writeTexts): Promise<{ html: string; template: string; usage: Usage }> {
+export async function buildSite(env: Env, sites: Record<string, Compiled>, business: Business, audience: Audience, write = writeTexts, engine: Engine = "gemini"): Promise<{ html: string; template: string; usage: Usage }> {
   const template = chooseTemplate({ sector: business.sector, naics: business.naics, name: business.name });
   const c = sites[template];
   if (!c) throw new Error(`No existe la plantilla "${template}"`);
@@ -280,7 +333,7 @@ export async function buildSite(env: Env, sites: Record<string, Compiled>, busin
   const renderFacts = { email: facts.email, phone: facts.phone, mapQuery: `${facts.city}, ${facts.state}` };
   const own = [facts.email, facts.phone];
 
-  const first = await write(env, facts, items, template, terms, audience);
+  const first = await write(env, facts, items, template, terms, audience, engine);
   let texts = englishOnly(audience, items, first.texts);
   let usage = add({}, first.usage);
   let html = renderSite(c, { texts, drop, facts: renderFacts });
@@ -291,7 +344,7 @@ export async function buildSite(env: Env, sites: Record<string, Compiled>, busin
       return t ? { ...i, ...(i.en !== undefined ? { en: t.en || i.en, es: t.es || i.es } : { text: t.en || i.text }) } : i;
     }).filter((i) => findLeftovers(`${i.en ?? ""} ${i.es ?? ""} ${i.text ?? ""}`, left, own).length);
     if (stillBad.length) {
-      const second = await write(env, facts, stillBad, template, left, audience);
+      const second = await write(env, facts, stillBad, template, left, audience, engine);
       texts = englishOnly(audience, items, { ...texts, ...second.texts });
       usage = add(usage, second.usage);
       html = renderSite(c, { texts, drop, facts: renderFacts });

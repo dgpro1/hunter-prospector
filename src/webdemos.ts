@@ -3,7 +3,8 @@
 // Si el dueño pulsa "La quiero" y deja su WhatsApp, entra al CRM como ficha con origen "webdemo".
 import type { Env } from "./crm.ts";
 import { classifyRegistrations, fetchRegistrations, FREE_MAIL, type Candidate } from "./ctRegistry.ts";
-import { brandName, buildSite, chooseTemplate } from "./sitegen.ts";
+import { brandName, buildSite, chooseTemplate, ENGINE_LABEL, pickEngine, writeTexts, type Engine } from "./sitegen.ts";
+import { setting, setSetting } from "./auto.ts";
 import { SITES } from "./sites/index.ts";
 import { CSS, esc } from "./panel.ts";
 import { normalizePhone } from "./leads.ts";
@@ -93,7 +94,7 @@ export async function generateOne(env: Env, slug?: string): Promise<{ slug?: str
   try {
     const site = await buildSite(env, SITES, {
       name: row.name, city: row.city, state: row.state, email: row.email, sector: row.sector, naics: row.naics, registered: row.registered,
-    }, row.audience === "es" ? "es" : "en");
+    }, row.audience === "es" ? "es" : "en", writeTexts, pickEngine(env, await setting(env, "webs_ia")));
     await env.DB.prepare("UPDATE webdemos SET status = 'lista', html = ?, template = ?, cost = ?, generated_at = ?, updated_at = ? WHERE slug = ?")
       .bind(site.html, site.template, site.usage.cost ?? null, now(), now(), row.slug).run();
     return { slug: row.slug, ok: true };
@@ -210,6 +211,12 @@ export async function panelRoute(req: Request, url: URL, env: Env): Promise<Resp
         return back(`Registro: ${r.raw} altas con correo, ${r.kept} pasan los filtros, ${r.added} nuevas en tu lista (${r.repeated} ya estaban, ${r.withWeb} ya tienen web).`);
       } catch (e: any) { return back(`No pude leer el registro: ${e.message}`); }
     }
+    if (url.pathname === "/panel/webs/ia") {
+      const e = String(f.get("ia") ?? "");
+      if (e in ENGINE_LABEL) await setSetting(env, "webs_ia", e);
+      const used = pickEngine(env, e);
+      return back(used === e ? `Las webs se escriben ahora con ${ENGINE_LABEL[used]}.` : `Falta la clave de ese motor: se usa ${ENGINE_LABEL[used]}.`);
+    }
     if (url.pathname === "/panel/webs/cola") {
       const n = await queueBest(env, Number(f.get("n") ?? 10) || 10);
       return back(`${n} webs en cola. Se hace una cada 3 minutos; recarga para ver cómo van.`);
@@ -233,6 +240,9 @@ async function renderWebs(env: Env, msg: string | null): Promise<string> {
   const work = await env.DB.prepare("SELECT slug, name, city, sector, status, error, updated_at FROM webdemos WHERE status IN ('en_cola','generando','error') ORDER BY updated_at DESC LIMIT 50").all<any>();
   const fresh = await env.DB.prepare("SELECT slug, name, email, city, sector, registered, latino, notes FROM webdemos WHERE status = 'nueva' ORDER BY (sector != 'otro') DESC, registered DESC LIMIT 40").all<any>();
   const n = (k: string) => by[k]?.n ?? 0;
+  const chosen = await setting(env, "webs_ia");
+  const engine = pickEngine(env, chosen);
+  const engineForm = `<form method="post" action="/panel/webs/ia" class="row" style="align-items:center;flex-wrap:wrap"><label>Motor de IA <select name="ia">${(Object.keys(ENGINE_LABEL) as Engine[]).map((k) => `<option value="${k}" ${k === engine ? "selected" : ""}>${esc(ENGINE_LABEL[k])}</option>`).join("")}</select></label><button class="ghost">Usar</button></form>${env.GEMINI_API_KEY ? "" : '<p class="muted">Para Gemini gratis: crea una clave en aistudio.google.com/apikey y guárdala en Cloudflare como secreto GEMINI_API_KEY.</p>'}`;
   const lang = (a: string) => (a === "es" ? "ES/EN" : "EN");
   const btn = (slug: string, a: string, label: string, ghost = true) => `<form method="post" action="/panel/webs/${esc(slug)}/${a}" style="display:inline"><button class="${ghost ? "ghost" : ""}" style="padding:4px 12px;font-size:13px">${label}</button></form>`;
   const readyRows = ready.results.map((d) => `<tr><td><b>${esc(brandName(d.name).brand)}</b><br><span class="muted">${esc(d.city ?? "")} · ${esc(SECTOR[d.sector] ?? d.sector)} · ${lang(d.audience)} · ${esc(d.email)}</span></td>
@@ -256,7 +266,7 @@ ${msg ? `<div class="msg">${esc(msg)}</div>` : ""}
 <p class="muted">Altas activas con correo del registro público (data.ct.gov). Quita gestorías, holdings y los que ya tienen web.</p>
 <form method="post" action="/panel/webs/traer" class="row" style="flex-wrap:wrap;align-items:center"><label>Últimos <input name="days" type="number" value="7" min="1" max="30" style="width:70px"> días</label><label><input type="checkbox" name="latino"> Solo latinos</label><button>Traer altas</button></form></div>
 <div class="card"><b>2 · Hacer webs</b><p class="muted">La IA adapta una plantilla a cada negocio (los latinos reciben web bilingüe). Una cada 3 minutos. Nada se envía por correo todavía.</p>
-<form method="post" action="/panel/webs/cola" class="row" style="align-items:center"><label>Hacer las mejores <input name="n" type="number" value="10" min="1" max="50" style="width:70px"></label><button>Poner en cola</button></form></div>
+${engineForm}<form method="post" action="/panel/webs/cola" class="row" style="align-items:center"><label>Hacer las mejores <input name="n" type="number" value="10" min="1" max="50" style="width:70px"></label><button>Poner en cola</button></form></div>
 <section><h2>Listas (${n("lista")})</h2><div class="t"><table>${readyRows || '<tr><td class="muted">Todavía no hay webs listas.</td></tr>'}</table></div></section>
 ${workRows ? `<section><h2>Haciéndose y errores</h2><div class="t"><table>${workRows}</table></div></section>` : ""}
 <section><h2>Por hacer (${n("nueva")})</h2><div class="t"><table>${freshRows || '<tr><td class="muted">Trae altas del registro para empezar.</td></tr>'}</table></div></section>
