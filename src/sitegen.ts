@@ -273,7 +273,7 @@ async function ask(env: Env, engine: Engine, system: string, user: string): Prom
   if (engine === "cloudflare") {
     const out: any = await env.AI.run(CF_MODEL as any, {
       messages: [{ role: "system", content: system }, { role: "user", content: user }],
-      max_tokens: 8000, temperature: 0.6, response_format: { type: "json_object" },
+      max_tokens: 4096, temperature: 0.6, response_format: { type: "json_object" },
     } as any);
     const r = out?.response;
     return { raw: typeof r === "string" ? r : JSON.stringify(r ?? {}), usage: { prompt_tokens: out?.usage?.prompt_tokens, completion_tokens: out?.usage?.completion_tokens, cost: 0 } };
@@ -295,18 +295,29 @@ async function ask(env: Env, engine: Engine, system: string, user: string): Prom
 }
 
 export async function writeTexts(env: Env, facts: Facts, items: Item[], template: string, terms: string[], audience: Audience, engine: Engine = "gemini"): Promise<{ texts: Texts; usage: Usage }> {
-  // Cloudflare: modelo más chico y salida limitada → la plantilla va por partes
-  const size = engine === "cloudflare" ? 110 : items.length;
+  // Cloudflare corta las peticiones largas (error 3046): la plantilla va en trozos pequeños, de 3 en 3 a la vez
+  const size = engine === "cloudflare" ? 45 : items.length;
   const known = new Set(items.map((i) => i.id));
   const texts: Texts = {};
   let usage: Usage = {};
-  for (let k = 0; k < items.length; k += size) {
-    const part = items.slice(k, k + size);
-    const { raw, usage: u } = await ask(env, engine, audience === "en" ? SYSTEM_EN : SYSTEM_ES, buildPrompt(facts, part, template, terms, audience));
-    usage = add(usage, u);
-    let parsed: any;
-    try { parsed = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1)); } catch { throw new Error("La IA no devolvió un JSON válido"); }
-    for (const x of parsed.units ?? []) if (known.has(x.id)) texts[x.id] = { en: x.en ?? "", es: audience === "en" ? (x.en ?? "") : (x.es ?? "") };
+  const parts: Item[][] = [];
+  for (let k = 0; k < items.length; k += size) parts.push(items.slice(k, k + size));
+  const one = async (part: Item[]) => {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        const { raw, usage: u } = await ask(env, engine, audience === "en" ? SYSTEM_EN : SYSTEM_ES, buildPrompt(facts, part, template, terms, audience));
+        const parsed = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1));
+        return { parsed, u };
+      } catch (e: any) {
+        if (attempt >= 2) throw new Error(/JSON/.test(String(e)) ? "La IA no devolvió un JSON válido" : String(e?.message ?? e));
+      }
+    }
+  };
+  for (let k = 0; k < parts.length; k += 3) {
+    for (const { parsed, u } of await Promise.all(parts.slice(k, k + 3).map(one))) {
+      usage = add(usage, u);
+      for (const x of parsed.units ?? []) if (known.has(x.id)) texts[x.id] = { en: x.en ?? "", es: audience === "en" ? (x.en ?? "") : (x.es ?? "") };
+    }
   }
   return { texts, usage };
 }
