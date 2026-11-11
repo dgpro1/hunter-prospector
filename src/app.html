@@ -196,9 +196,10 @@ table{width:100%;border-collapse:collapse;font-size:13px}td{padding:8px 6px;bord
 .alerts .it:hover{background:var(--card)}.alerts .it.new{background:rgba(255,106,0,.07)}
 .alerts .it small{display:block;color:var(--mut);font-size:11px;margin-top:2px}
 .alerts .empty{padding:24px 16px;color:var(--mut);font-size:13px;text-align:center}
-@media(max-width:860px){.bell{top:calc(10px + env(safe-area-inset-top));right:12px;width:40px;height:40px}.alerts{top:calc(58px + env(safe-area-inset-top));right:12px}.reload{top:calc(10px + env(safe-area-inset-top));right:60px;width:40px;height:40px}}
+@media(max-width:860px){.bell{top:calc(10px + env(safe-area-inset-top));right:12px;width:40px;height:40px}.alerts{top:calc(58px + env(safe-area-inset-top));right:12px}}
 .reload{position:fixed;top:16px;right:70px;z-index:40;width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:var(--card);color:var(--fg);display:grid;place-items:center;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.35)}
 .reload svg{width:19px;height:19px}.reload.spin svg{animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
+@media(max-width:860px){.reload{top:calc(10px + env(safe-area-inset-top));right:60px;width:40px;height:40px}}
 </style>
 </head>
 <body>
@@ -321,7 +322,7 @@ function homeHTML(){
   const kpi=(l,n,sub,glow)=>`<div class="card kpi" style="--glow:${glow}"><div class="l">${l}</div><div class="n">${n}</div><div class="s">${sub}</div></div>`;
   const max=Math.max(1,...S.stages.map(x=>x.n));
   return `
-  <div class="top"><div><h1>${greet()}, <span>Daniel</span></h1><p>${new Date().toLocaleDateString("es-CO",{weekday:"long",day:"numeric",month:"long"})} · así va tu cacería</p></div>
+  <div class="top">
     <div class="actions"><a class="btn" href="#envios">🎯 Cazar</a><button class="btn ghost" onclick="newLead()">＋ Prospecto</button></div></div>
   <div class="grid">
     <div class="card today">
