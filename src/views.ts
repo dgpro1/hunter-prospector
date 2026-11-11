@@ -10,6 +10,7 @@ const EXTRA = `
 .out{align-self:flex-end;background:#3a1e08;border:1px solid #6b3410}
 .act{align-self:center;color:var(--m);font-size:12px}
 .chips{display:flex;gap:6px;flex-wrap:wrap}.chip{border:1px solid var(--l);border-radius:999px;padding:3px 10px;font-size:13px;display:inline-flex;gap:6px;align-items:center}
+input[type=text],input:not([type]),select{background:#18130f;color:var(--fg);border:1px solid var(--l);border-radius:8px;padding:8px}
 input[type=number]{width:90px;background:#18130f;color:var(--fg);border:1px solid var(--l);border-radius:8px;padding:6px}
 label{font-size:13px;color:var(--m);display:flex;gap:8px;align-items:center}
 `;
@@ -106,7 +107,11 @@ $("reset").onclick=()=>{msgs.length=0;clock=Date.now()-3*864e5;$("out").hidden=t
 export function renderQueue(s: {
   counts: Record<string, number>; quota: number; auto: boolean; ready: boolean; lastError: string | null;
   nextAt: string | null; today: any[]; sentToday: number; flash: string | null;
+  hunts: any[]; countries: string[][];
 }): string {
+  const huntRows = s.hunts.map((h) => `<tr><td>${esc(h.niche)} · ${esc(h.city)} (${esc(h.country)})</td><td>${
+    h.status === "error" ? `<span class="muted">${esc(h.error)}</span>` : `${esc(h.found ?? 0)} negocios · ${esc(h.mobiles ?? 0)} WhatsApp · <b>${esc(h.added ?? 0)} nuevos</b>`
+  }</td></tr>`).join("");
   const c = (k: string) => s.counts[k] ?? 0;
   const rows = s.today.map((l) => `
     <form class="card" method="post" action="/panel/cola/lead/${esc(l.phone)}">
@@ -134,6 +139,18 @@ ${s.flash ? `<p class="card">${esc(s.flash)}</p>` : ""}
   <div class="chips"><span class="chip">En cola: ${c("cola")}</span><span class="chip">Hoy: ${c("hoy")}</span><span class="chip">Enviados: ${c("enviado")}</span><span class="chip">Descartados: ${c("descartado")}</span></div>
   <form method="post" action="/panel/cola/quota" class="row" style="align-items:center"><label>Cupo diario <input type="number" name="quota" min="1" max="60" value="${s.quota}"></label><button class="ghost">Guardar</button></form>
   <form method="post" action="/panel/cola/fill"><button>Armar el día</button></form>
+</section>
+<section class="card"><b>🎯 Cazar en Google Maps</b>
+  <form method="post" action="/panel/cola/hunt" class="row" style="flex-wrap:wrap;align-items:center"
+    onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').textContent='Cazando…'">
+    <input name="niche" placeholder="Nicho (ej. clínicas dentales)" required style="flex:1 1 200px">
+    <input name="city" placeholder="Ciudad (ej. Guadalajara)" required style="flex:1 1 160px">
+    <select name="country">${s.countries.map(([c, n]) => `<option value="${esc(c)}">${esc(n)}</option>`).join("")}</select>
+    <label>Páginas <input type="number" name="pages" value="3" min="1" max="5"></label>
+    <button>Cazar</button>
+  </form>
+  <p class="muted" style="margin:0">20 negocios por página. Solo entran los que tienen móvil (WhatsApp), sin repetidos ni No contactar.</p>
+  ${huntRows ? `<div class="t"><table>${huntRows}</table></div>` : ""}
 </section>
 <section class="card"><b>Importar cacería del Cazador</b>
   <p class="muted" style="margin:0">Sube el .json o .csv de la carpeta <code>resultados</code>. Se quitan los repetidos y los de No contactar.</p>

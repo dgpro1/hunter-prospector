@@ -62,3 +62,17 @@ CREATE TABLE IF NOT EXISTS leads (
   sent_at TEXT
 );
 CREATE INDEX IF NOT EXISTS leads_status ON leads(status, day);
+
+-- Cazador dentro del panel: cada búsqueda en Google Maps
+CREATE TABLE IF NOT EXISTS hunts (
+  id TEXT PRIMARY KEY,
+  niche TEXT NOT NULL,
+  city TEXT NOT NULL,
+  country TEXT NOT NULL,
+  pages INTEGER NOT NULL DEFAULT 3,
+  status TEXT NOT NULL DEFAULT 'pendiente',     -- pendiente | cazando | ok | error
+  error TEXT,
+  found INTEGER, mobiles INTEGER, added INTEGER, repeated INTEGER,
+  created_at TEXT NOT NULL,
+  finished_at TEXT
+);

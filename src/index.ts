@@ -5,6 +5,7 @@ import { colorFor, prospectingStart, responseMinutes } from "./timer.ts";
 import { renderPanel } from "./panel.ts";
 import { renderChat, renderQueue, renderSim } from "./views.ts";
 import { fillToday, getQuota, importLeads, markLead, parseHunt, setQuota, today } from "./leads.ts";
+import { PAISES, runHunt } from "./hunt.ts";
 import { evolutionReady, sendFirst, setSetting, setting, tick } from "./auto.ts";
 import type { Msg } from "./timer.ts";
 import { humanDuration } from "./timer.ts";
@@ -25,6 +26,11 @@ export default {
     return new Response("No encontrado", { status: 404 });
   },
   async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil((async () => {
+      // Cacerías dejadas en cola (p. ej. creadas por otra vía): una por vuelta.
+      const h = await env.DB.prepare("SELECT id FROM hunts WHERE status = 'pendiente' ORDER BY created_at LIMIT 1").first<{ id: string }>();
+      if (h) await runHunt(env, h.id);
+    })().catch((e) => console.error("hunt", e)));
     ctx.waitUntil(tick(env).then((r) => console.log("tick", r)).catch((e) => console.error("tick", e)));
   },
 };
@@ -217,6 +223,22 @@ async function queue(req: Request, url: URL, env: Env): Promise<Response> {
         return go(`No pude leer ${file.name}: ${String(e)}`);
       }
     }
+    if (url.pathname === "/panel/cola/hunt") {
+      const f = await req.formData();
+      const niche = String(f.get("niche") ?? "").trim().slice(0, 80);
+      const city = String(f.get("city") ?? "").trim().slice(0, 80);
+      const country = String(f.get("country") ?? "MX");
+      const pages = Math.max(1, Math.min(5, Number(f.get("pages")) || 3));
+      if (!niche || !city || !PAISES[country]) return go("Pon nicho, ciudad y país.");
+      const id = crypto.randomUUID();
+      await env.DB.prepare("INSERT INTO hunts (id, niche, city, country, pages, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+        .bind(id, niche, city, country, pages, now()).run();
+      await runHunt(env, id);
+      const h = await env.DB.prepare("SELECT * FROM hunts WHERE id = ?").bind(id).first<any>();
+      return go(h?.status === "error"
+        ? `Cacería fallida: ${h.error}`
+        : `${niche} en ${city}: ${h?.found ?? 0} negocios, ${h?.mobiles ?? 0} con WhatsApp, ${h?.added ?? 0} nuevos a la cola.${h?.error ? " " + h.error : ""}`);
+    }
     if (url.pathname === "/panel/cola/quota") {
       await setQuota(env, Number((await req.formData()).get("quota")));
       return go("Cupo guardado.");
@@ -263,6 +285,8 @@ async function queue(req: Request, url: URL, env: Env): Promise<Response> {
     lastError: (await setting(env, "last_error")) || null,
     nextAt: (await setting(env, "next_send_at")) || null,
     today: list.results ?? [],
+    hunts: (await env.DB.prepare("SELECT * FROM hunts ORDER BY created_at DESC LIMIT 8").all<any>()).results ?? [],
+    countries: Object.values(PAISES).map((p) => [p.code, p.name]),
     sentToday: (list.results ?? []).filter((l: any) => l.status === "enviado").length,
     flash: url.searchParams.get("m"),
   });
