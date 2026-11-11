@@ -242,13 +242,13 @@ async function renderWebs(env: Env, msg: string | null): Promise<string> {
     <td>${esc(STATUS[d.status] ?? d.status)}${d.error ? `<br><span class="muted">${esc(d.error)}</span>` : ""}</td><td>${d.status === "error" ? btn(d.slug, "cola", "Reintentar") : ""}</td></tr>`).join("");
   const freshRows = fresh.results.map((d) => `<tr><td>${esc(brandName(d.name).brand)}<br><span class="muted">${esc(d.city ?? "")} · alta ${esc(d.registered ?? "")}${d.latino ? " · 🌎 latino" : ""}</span></td>
     <td>${esc(SECTOR[d.sector] ?? d.sector)}</td><td>${btn(d.slug, "cola", "Hacer web", false)} ${btn(d.slug, "descartar", "✕")}</td></tr>`).join("");
-  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Webs demo · Prospector</title><style>${CSS}
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Webs demo · Prospector</title><style>${CSS}body{padding-top:calc(24px + env(safe-area-inset-top))}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px}.kpi{background:var(--s);border:1px solid var(--l);border-radius:14px;padding:12px}.kpi b{display:block;font-size:24px;color:var(--a)}
 input,select{background:#18130f;color:var(--fg);border:1px solid var(--l);border-radius:8px;padding:6px 8px;font:inherit}label{color:var(--m);font-size:13px;display:inline-flex;gap:6px;align-items:center}
 .msg{background:#2a1606;border:1px solid #6b3410;border-radius:12px;padding:10px 14px}
 </style></head><body><main>
-<h1>Prospector <span>· Webs demo</span></h1>
+<h1 style="display:flex;justify-content:space-between;align-items:center;gap:8px">Prospector <span>· Webs demo</span><a href="/panel/webs" aria-label="Actualizar" style="margin-left:auto;font-size:20px;text-decoration:none">↻</a></h1>
 <nav class="nav"><a href="/panel#inicio">Inicio</a><a href="/panel#pipeline">Pipeline</a><a href="/panel#envios">Envíos</a><a href="/panel/webs" class="on">Webs demo</a></nav>
 ${msg ? `<div class="msg">${esc(msg)}</div>` : ""}
 <div class="kpis"><div class="kpi"><b>${n("nueva")}</b>Por hacer</div><div class="kpi"><b>${n("en_cola") + n("generando")}</b>Haciéndose</div><div class="kpi"><b>${n("lista")}</b>Listas</div><div class="kpi"><b>${n("error")}</b>Con error</div><div class="kpi"><b>$${cost.toFixed(2)}</b>Gastado en IA</div></div>

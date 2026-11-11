@@ -156,7 +156,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td{padding:8px 6px;bord
 .tabs{display:none}
 @media(max-width:860px){
   .app{grid-template-columns:1fr}.side{display:none}
-  main{padding:18px 16px 96px}
+  main{padding:calc(18px + env(safe-area-inset-top)) 16px 96px}
   .tabs{display:flex;position:fixed;bottom:0;left:0;right:0;z-index:20;background:rgba(8,6,5,.92);backdrop-filter:blur(10px);border-top:1px solid var(--line);padding:6px 4px calc(6px + env(safe-area-inset-bottom))}
   .tabs a{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;color:var(--mut);font-size:10.5px;padding:4px;position:relative}
   .tabs a.on{color:var(--a)}.tabs svg{width:20px;height:20px}
@@ -171,8 +171,8 @@ table{width:100%;border-collapse:collapse;font-size:13px}td{padding:8px 6px;bord
 .ln{background:#0d0a08;border:1px solid var(--line);border-radius:14px;padding:12px 14px}
 .lh{display:flex;align-items:center;gap:8px}.lh small{color:var(--mut)}.lh .btn{margin-left:auto;min-height:0;padding:3px 8px}
 .lk{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:10px;text-align:center}.lk b{display:block;font-size:15px;white-space:nowrap}.lk small{color:var(--mut);font-size:10.5px}
-.top{padding-right:58px}
-.drawer.on~.bell,.drawer.on~.alerts{display:none}
+.top{padding-right:110px}
+.drawer.on~.bell,.drawer.on~.alerts,.drawer.on~.reload{display:none}
 .stagebar{display:none}
 @media(max-width:860px){
   .stagebar{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin:0 -16px 12px;padding:2px 16px;position:sticky;top:0;z-index:5;background:linear-gradient(#050505 80%,transparent)}
@@ -196,7 +196,9 @@ table{width:100%;border-collapse:collapse;font-size:13px}td{padding:8px 6px;bord
 .alerts .it:hover{background:var(--card)}.alerts .it.new{background:rgba(255,106,0,.07)}
 .alerts .it small{display:block;color:var(--mut);font-size:11px;margin-top:2px}
 .alerts .empty{padding:24px 16px;color:var(--mut);font-size:13px;text-align:center}
-@media(max-width:860px){.bell{top:10px;right:12px;width:40px;height:40px}.alerts{top:58px;right:12px}}
+@media(max-width:860px){.bell{top:calc(10px + env(safe-area-inset-top));right:12px;width:40px;height:40px}.alerts{top:calc(58px + env(safe-area-inset-top));right:12px}.reload{top:calc(10px + env(safe-area-inset-top));right:60px;width:40px;height:40px}}
+.reload{position:fixed;top:16px;right:70px;z-index:40;width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:var(--card);color:var(--fg);display:grid;place-items:center;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.35)}
+.reload svg{width:19px;height:19px}.reload.spin svg{animation:spin .8s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
@@ -212,6 +214,7 @@ table{width:100%;border-collapse:collapse;font-size:13px}td{padding:8px 6px;bord
 <div class="scrim" id="scrim"></div>
 <aside class="drawer" id="drawer"></aside>
 <div class="toast" id="toast"></div>
+<button class="reload" id="reload" aria-label="Actualizar" onclick="this.classList.add('spin');location.reload()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg></button>
 <button class="bell" id="bell" aria-label="Avisos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span class="badge" id="belln" style="display:none"></span></button>
 <div class="alerts" id="alerts"></div>
 
