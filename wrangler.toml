@@ -33,3 +33,8 @@ CRM_STAGES = "{}"
 #   CRM_WEBHOOK_SECRET   whsec_… que da el CRM al crear la suscripción
 #   OPENROUTER_API_KEY
 #   PANEL_PASSWORD       contraseña del panel /panel
+
+[[rules]]
+type = "Text"
+globs = ["**/*.html"]
+fallthrough = true

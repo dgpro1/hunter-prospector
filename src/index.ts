@@ -2,7 +2,9 @@
 import { type Env, holdForWorker, messages, moveStage, reply, verifySignature } from "./crm.ts";
 import { classify, draft, pickBranch } from "./brain.ts";
 import { colorFor, prospectingStart, responseMinutes } from "./timer.ts";
-import { renderPanel } from "./panel.ts";
+import APP from "./app.html";
+import { api } from "./api.ts";
+import { addNote, leadForChat, setStage } from "./store.ts";
 import { renderChat, renderQueue, renderSim } from "./views.ts";
 import { fillToday, getQuota, importLeads, markLead, parseHunt, setQuota, today } from "./leads.ts";
 import { PAISES, runHunt } from "./hunt.ts";
@@ -112,6 +114,19 @@ async function handleReply(env: Env, data: any): Promise<void> {
     firstOut, firstIn, minutes, color, who, branch, intent === "no_interesa" ? "no_contactar" : "activo", now(),
   ).run();
 
+  // CRM: la respuesta queda en la ficha del prospecto.
+  const lead = await leadForChat(env, data);
+  await env.DB.prepare(
+    `UPDATE leads SET color = COALESCE(color, ?), response_minutes = COALESCE(response_minutes, ?), replied_at = COALESCE(replied_at, ?),
+       who_replied = CASE WHEN ? = 'desconocido' THEN who_replied ELSE ? END, updated_at = ? WHERE phone = ?`,
+  ).bind(color, minutes, firstIn, who, who, now(), lead).run();
+  if (isFirstReply) await addNote(env, lead, `Respondió${minutes !== null ? ` en ${humanDuration(minutes)}` : ""}: “${String(data.content ?? "").slice(0, 140)}”`);
+  if (intent === "no_interesa") await setStage(env, lead, "perdido", "dijo que no le interesa");
+  else {
+    const cur = await env.DB.prepare("SELECT stage FROM leads WHERE phone = ?").bind(lead).first<{ stage: string }>();
+    if (cur && ["nuevo", "contactado"].includes(cur.stage)) await setStage(env, lead, "respondio");
+  }
+
   if (intent === "no_interesa") {
     await env.DB.prepare("INSERT OR IGNORE INTO do_not_contact (key, reason, created_at) VALUES (?, ?, ?)")
       .bind(data.contact_id ?? conversationId, "dijo que no le interesa", now()).run();
@@ -129,6 +144,10 @@ async function handleReply(env: Env, data: any): Promise<void> {
 }
 
 async function panel(req: Request, url: URL, env: Env): Promise<Response> {
+  if (url.pathname === "/panel" || url.pathname === "/panel/") {
+    return new Response(APP, { headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" } });
+  }
+  if (url.pathname.startsWith("/panel/api/")) return api(req, url, env);
   const match = url.pathname.match(/^\/panel\/drafts\/([\w-]+)\/(send|discard)$/);
   if (match && req.method === "POST") {
     const [, id, action] = match;
@@ -140,6 +159,8 @@ async function panel(req: Request, url: URL, env: Env): Promise<Response> {
         const text = String(form.get("text") ?? row.text).trim();
         await reply(env, row.conversation_id, text, id);
         await env.DB.prepare("UPDATE drafts SET status = 'enviado', text = ?, sent_at = ? WHERE id = ?").bind(text, now(), id).run();
+        const lead = await env.DB.prepare("SELECT phone FROM leads WHERE conversation_id = ?").bind(row.conversation_id).first<{ phone: string }>();
+        if (lead) await addNote(env, lead.phone, `Le respondiste: “${text.slice(0, 140)}”`);
       } else {
         await env.DB.prepare("UPDATE drafts SET status = 'descartado' WHERE id = ?").bind(id).run();
       }
@@ -177,15 +198,7 @@ async function panel(req: Request, url: URL, env: Env): Promise<Response> {
     const pending = await env.DB.prepare("SELECT * FROM drafts WHERE conversation_id = ? AND status = 'pendiente' ORDER BY created_at DESC").bind(conversationId).first();
     return new Response(renderChat(conversationId, prospect, pending), { headers: { "Content-Type": "text/html; charset=utf-8" } });
   }
-  const drafts = await env.DB.prepare(
-    `SELECT d.*, p.contact_name, p.number, p.color, p.response_minutes, p.who_replied
-     FROM drafts d LEFT JOIN prospects p ON p.conversation_id = d.conversation_id
-     WHERE d.status = 'pendiente' ORDER BY d.created_at DESC LIMIT 50`,
-  ).all();
-  const prospects = await env.DB.prepare("SELECT * FROM prospects ORDER BY updated_at DESC LIMIT 100").all();
-  return new Response(renderPanel(drafts.results as any[], prospects.results as any[], env.CRM_BASE_URL), {
-    headers: { "Content-Type": "text/html; charset=utf-8" },
-  });
+  return Response.redirect(new URL("/panel", url).toString(), 302);
 }
 
 /** Corre el cerebro real (cronómetro, clasificador, rama y redactor) sobre una conversación inventada. */
@@ -211,7 +224,10 @@ async function simulate(req: Request, env: Env): Promise<Response> {
 
 async function queue(req: Request, url: URL, env: Env): Promise<Response> {
   const go = (flash?: string) =>
-    Response.redirect(new URL("/panel/cola" + (flash ? "?m=" + encodeURIComponent(flash) : ""), url).toString(), 303);
+    req.headers.get("X-App")
+      ? Response.json({ message: flash ?? "Listo" })
+      : Response.redirect(new URL("/panel#envios", url).toString(), 303);
+  if (req.method !== "POST") return Response.redirect(new URL("/panel#envios", url).toString(), 302);
   if (req.method === "POST") {
     if (url.pathname === "/panel/cola/import") {
       const file = (await req.formData()).get("file") as unknown as File | string | null;

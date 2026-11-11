@@ -57,6 +57,13 @@ export async function moveStage(env: Env, conversationId: string, stage: string)
   });
 }
 
+/** Teléfono (solo dígitos) de un contacto del CRM. Necesita el permiso contacts.read; si no lo hay, null. */
+export async function contactPhone(env: Env, contactId: string): Promise<string | null> {
+  const c = await call(env, `/contacts/${contactId}`);
+  const digits = String(c?.phone ?? "").replace(/\D/g, "");
+  return digits.length >= 10 ? digits : null;
+}
+
 /** Verifica la firma HMAC-SHA256 (hex) que el CRM pone en X-Signature. */
 export async function verifySignature(secret: string, raw: ArrayBuffer, signature: string | null): Promise<boolean> {
   if (!signature || !secret) return false;

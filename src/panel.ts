@@ -23,7 +23,7 @@ button.ghost{background:transparent;color:var(--a);border:1px solid var(--a)}
 a{color:var(--a)}
 `;
 
-export const nav = (on: string) => `<nav class="nav"><a href="/panel" class="${on === "panel" ? "on" : ""}">Bandeja</a><a href="/panel/cola" class="${on === "cola" ? "on" : ""}">Cola</a><a href="/panel/simular" class="${on === "sim" ? "on" : ""}">Simulador</a></nav>`;
+export const nav = (_on: string) => `<nav class="nav"><a href="/panel#inicio">Inicio</a><a href="/panel#pipeline">Pipeline</a><a href="/panel#envios">Envíos</a><a href="/panel#bandeja">Bandeja</a><a href="/panel/simular" class="on">Simulador</a></nav>`;
 
 export function renderPanel(drafts: any[], prospects: any[], crmBase: string): string {
   const dot = (c: string) => `<i class="dot" style="background:${COLORS[c] ?? COLORS.gris}"></i>`;

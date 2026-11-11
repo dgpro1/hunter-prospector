@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS leads (
   created_at TEXT NOT NULL,
   sent_at TEXT
 );
+-- (columnas de CRM en migrations/002_crm.sql)
 CREATE INDEX IF NOT EXISTS leads_status ON leads(status, day);
 
 -- Cazador dentro del panel: cada búsqueda en Google Maps

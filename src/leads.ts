@@ -1,5 +1,6 @@
 // Canal 1 · Prospector: cola de leads del Cazador, cupo diario y aperturas personalizadas.
 import type { Env } from "./crm.ts";
+import { addNote, setStage } from "./store.ts";
 
 export type Lead = {
   phone: string; name: string; niche: string | null; city: string | null; web: string | null;
@@ -74,9 +75,9 @@ export async function importLeads(env: Env, leads: Lead[], batch: string): Promi
     const dnc = await env.DB.prepare("SELECT 1 FROM do_not_contact WHERE key = ?").bind(l.phone).first();
     if (dnc) { blocked++; continue; }
     const res = await env.DB.prepare(
-      `INSERT OR IGNORE INTO leads (phone, name, niche, city, web, category, rating, confidence, maps_url, batch, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).bind(l.phone, l.name, l.niche, l.city, l.web, l.category, l.rating, l.confidence, l.maps_url, batch, at).run();
+      `INSERT OR IGNORE INTO leads (phone, name, niche, city, web, category, rating, confidence, maps_url, batch, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(l.phone, l.name, l.niche, l.city, l.web, l.category, l.rating, l.confidence, l.maps_url, batch, at, at).run();
     if (res.meta.changes) added++; else repeated++;
   }
   return { added, repeated, blocked };
@@ -156,9 +157,11 @@ export function fallbackOpener(lead: any, variant: string): string {
 export async function markLead(env: Env, phone: string, action: "enviado" | "descartado" | "no_contactar", opener?: string): Promise<void> {
   const at = new Date().toISOString();
   if (action === "enviado") {
-    await env.DB.prepare("UPDATE leads SET status = 'enviado', sent_at = ?, opener = COALESCE(?, opener) WHERE phone = ?").bind(at, opener ?? null, phone).run();
+    await env.DB.prepare("UPDATE leads SET status = 'enviado', sent_at = ?, opener = COALESCE(?, opener), updated_at = ? WHERE phone = ?").bind(at, opener ?? null, at, phone).run();
+    await setStage(env, phone, "contactado", "primer mensaje enviado");
   } else {
-    await env.DB.prepare("UPDATE leads SET status = 'descartado' WHERE phone = ?").bind(phone).run();
+    await env.DB.prepare("UPDATE leads SET status = 'descartado', updated_at = ? WHERE phone = ?").bind(at, phone).run();
+    await addNote(env, phone, action === "no_contactar" ? "Marcado como No contactar" : "Saltado en la cola");
     if (action === "no_contactar") {
       await env.DB.prepare("INSERT OR IGNORE INTO do_not_contact (key, reason, created_at) VALUES (?, ?, ?)").bind(phone, "descartado en la cola", at).run();
     }
