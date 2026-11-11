@@ -3,6 +3,20 @@ import type { Env } from "./crm.ts";
 import type { Color, Msg } from "./timer.ts";
 import { humanDuration } from "./timer.ts";
 
+/** Tono de todos los mensajes: español neutro con "tú". Nada de voseo ni modismos argentinos. */
+export const TONE =
+  "Idioma: español latino neutro, como habla un profesional de Colombia o México. Usa SIEMPRE \"tú\" (o \"usted\" si el otro lo usa). " +
+  "PROHIBIDO el voseo y el tono argentino o rioplatense: nada de \"vos\", \"tenés\", \"querés\", \"podés\", \"che\", \"dale\", \"genial, bárbaro\", \"laburo\", \"re\" ni imperativos como \"mirá\" o \"contame\" (di \"mira\", \"cuéntame\"). " +
+  "Tampoco uses modismos muy locales de ningún país.";
+
+/** Matiz por país del número, sin perder el español neutro. */
+export function toneFor(phone?: string | null): string {
+  const p = String(phone ?? "");
+  if (p.startsWith("34")) return TONE + " El negocio está en España: tutea con naturalidad, sin modismos latinos (nada de \"ahorita\" ni \"platicar\").";
+  if (p.startsWith("52")) return TONE + " El negocio está en México: cálido y respetuoso.";
+  return TONE;
+}
+
 export type Who = "equipo" | "dueno" | "desconocido";
 export type Intent = "interesado" | "pregunta" | "no_interesa" | "otro";
 export type Branch = "tarde" | "rapido" | "equipo" | "dueno" | "seguimiento" | "cierre";
@@ -53,11 +67,12 @@ const BRANCH_GUIDE: Record<Branch, string> = {
 
 export async function draft(
   env: Env,
-  opts: { branch: Branch; history: Msg[]; contactName: string | null; firstOut: string | null; minutes: number | null },
+  opts: { branch: Branch; history: Msg[]; contactName: string | null; firstOut: string | null; minutes: number | null; phone?: string | null },
 ): Promise<string> {
   const system = [
     "Eres Daniel, de Hunter AI. Vendes asistentes de IA para WhatsApp que responden en segundos, agendan y hacen seguimiento, con un CRM detrás.",
-    "Escribes por WhatsApp: tuteo (o usted si el otro lo usa), cercano, premium, frases cortas, máximo 1–2 emojis, sin listas ni markdown.",
+    "Escribes por WhatsApp: cercano, premium, frases cortas, máximo 1–2 emojis, sin listas ni markdown.",
+    toneFor(opts.phone),
     "Reglas: nunca des precios por chat (se dan en la llamada). Nunca inventes datos ni casos. No te hagas pasar por cliente. Una sola pregunta o acción por mensaje.",
     `Situación: ${BRANCH_GUIDE[opts.branch]}`,
     opts.firstOut && opts.minutes !== null

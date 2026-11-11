@@ -1,6 +1,6 @@
 // Hunter Prospector · worker v1 (Canal 2: tú escribes desde el anuncio, el worker toma el relevo).
 import { type Env, holdForWorker, messages, moveStage, reply, verifySignature } from "./crm.ts";
-import { classify, draft, pickBranch } from "./brain.ts";
+import { classify, draft, pickBranch, TONE } from "./brain.ts";
 import { colorFor, prospectingStart, responseMinutes } from "./timer.ts";
 import APP from "./app.html";
 import { api } from "./api.ts";
@@ -135,7 +135,7 @@ async function handleReply(env: Env, data: any): Promise<void> {
     await moveStage(env, conversationId, "respondio").catch(() => {});
   }
 
-  const text = await draft(env, { branch, history, contactName: data.contact_name ?? null, firstOut, minutes });
+  const text = await draft(env, { branch, history, contactName: data.contact_name ?? null, firstOut, minutes, phone: lead });
   if (!text) return;
   // Un borrador pendiente por chat: el nuevo reemplaza al anterior.
   await env.DB.prepare("UPDATE drafts SET status = 'descartado' WHERE conversation_id = ? AND status = 'pendiente'").bind(conversationId).run();
@@ -328,7 +328,7 @@ async function fakeBusiness(req: Request, env: Env): Promise<Response> {
     body: JSON.stringify({
       model: env.OPENROUTER_MODEL, max_tokens: 150,
       messages: [
-        { role: "system", content: `${persona} Te escribe por WhatsApp alguien que no conoces. Responde como por WhatsApp: una o dos frases, sin markdown. Devuelve solo tu mensaje.` },
+        { role: "system", content: `${persona} Te escribe por WhatsApp alguien que no conoces. Responde como por WhatsApp: una o dos frases, sin markdown. ${TONE} Devuelve solo tu mensaje.` },
         ...history.map((m) => ({ role: m.role === "user" ? "assistant" : "user", content: m.content })),
       ],
     }),

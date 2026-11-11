@@ -1,6 +1,7 @@
 // Canal 1 · Prospector: cola de leads del Cazador, cupo diario y aperturas personalizadas.
 import type { Env } from "./crm.ts";
 import { addNote, setStage } from "./store.ts";
+import { toneFor } from "./brain.ts";
 
 export type Lead = {
   phone: string; name: string; niche: string | null; city: string | null; web: string | null;
@@ -127,7 +128,8 @@ async function writeOpener(env: Env, lead: any, variant: string): Promise<string
   const system = [
     "Eres Daniel, de Hunter AI. Escribes el PRIMER mensaje de WhatsApp a un negocio que encontraste en Google Maps.",
     "Honesto: di que eres Daniel de Hunter AI y que los encontraste en Google; nunca te hagas pasar por cliente.",
-    "Máximo 3 frases cortas, cercano y premium, tuteo, como mucho 1 emoji, sin precios, sin links, sin markdown.",
+    "Máximo 3 frases cortas, cercano y premium, como mucho 1 emoji, sin precios, sin links, sin markdown.",
+    toneFor(lead.phone),
     VARIANT[variant] ?? VARIANT.A,
     "Devuelve solo el texto del mensaje.",
   ].join("\n");
