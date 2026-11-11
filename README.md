@@ -36,7 +36,7 @@ En el CRM:
   bandeja (leer, responder, gestionar) y pipeline. Su token va en `CRM_API_TOKEN`.
 - **Webhook** de esa integración hacia `https://<tu-worker>/webhooks/crm` con el evento `message.received`.
   El secreto que devuelve va en `CRM_WEBHOOK_SECRET`.
-- En `wrangler.toml`, pon el UUID del cliente en `CRM_CLIENT_ID` y, si quieres, los ids de etapa en
+- `CRM_CLIENT_ID` es opcional: si queda vacío, el worker aprende el UUID del primer webhook firmado. Si quieres, los ids de etapa en
   `CRM_STAGES` (`{"respondio":"…","perdido":"…"}`).
 
 ## Pruebas

@@ -35,13 +35,33 @@ async function webhook(req: Request, env: Env, ctx: ExecutionContext): Promise<R
     return new Response("Firma inválida", { status: 401 });
   }
   const event = JSON.parse(new TextDecoder().decode(raw));
-  if (event.event !== "message.received" || event.data?.client_id !== env.CRM_CLIENT_ID) return new Response("ignorado");
+  if (event.event !== "message.received" || !(await sameClient(env, event.data?.client_id))) return new Response("ignorado");
   // Entrega al menos una vez: cada aviso se procesa una sola vez.
   const fresh = await env.DB.prepare("INSERT OR IGNORE INTO events (id, received_at) VALUES (?, ?)").bind(event.id, now()).run();
   if (!fresh.meta.changes) return new Response("repetido");
   // Respondemos rápido al CRM y trabajamos en segundo plano.
   ctx.waitUntil(handleReply(env, event.data).catch((e) => console.error("handleReply", e)));
   return new Response("ok");
+}
+
+/**
+ * El webhook solo llega firmado por la integración del cliente de prospección, así que si
+ * CRM_CLIENT_ID no está configurado, el worker aprende el UUID del primer aviso y lo guarda.
+ */
+async function sameClient(env: Env, incoming: unknown): Promise<boolean> {
+  if (typeof incoming !== "string" || !incoming) return false;
+  await loadClientId(env);
+  if (!env.CRM_CLIENT_ID) {
+    await env.DB.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('crm_client_id', ?)").bind(incoming).run();
+    await loadClientId(env);
+  }
+  return env.CRM_CLIENT_ID === incoming;
+}
+
+async function loadClientId(env: Env): Promise<void> {
+  if (env.CRM_CLIENT_ID) return;
+  const row = await env.DB.prepare("SELECT value FROM settings WHERE key = 'crm_client_id'").first<{ value: string }>();
+  if (row?.value) env.CRM_CLIENT_ID = row.value;
 }
 
 async function handleReply(env: Env, data: any): Promise<void> {
@@ -100,6 +120,7 @@ async function panel(req: Request, url: URL, env: Env): Promise<Response> {
     const [, id, action] = match;
     const row = await env.DB.prepare("SELECT * FROM drafts WHERE id = ? AND status = 'pendiente'").bind(id).first<any>();
     if (row) {
+      await loadClientId(env);
       if (action === "send") {
         const form = await req.formData();
         const text = String(form.get("text") ?? row.text).trim();

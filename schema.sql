@@ -36,3 +36,8 @@ CREATE TABLE IF NOT EXISTS do_not_contact (
   reason TEXT,
   created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,                         -- crm_client_id: lo aprende del primer webhook
+  value TEXT NOT NULL
+);

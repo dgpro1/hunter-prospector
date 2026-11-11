@@ -13,7 +13,7 @@ binding = "AI"
 [vars]
 # URL base del CRM Hunter AI, sin barra final (ej. https://app.tudominio.com)
 CRM_BASE_URL = "https://app.hunterai.site"
-# UUID del cliente "agencia-hunterai" (app.hunterai.site/clients/agencia-hunterai) — el slug no sirve, va el UUID
+# UUID del cliente de prospección. Si se deja vacío, el worker lo aprende del primer webhook firmado
 CRM_CLIENT_ID = ""
 # Modelo de OpenRouter para redactar los mensajes
 OPENROUTER_MODEL = "anthropic/claude-sonnet-4.5"
