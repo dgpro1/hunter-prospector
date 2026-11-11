@@ -103,6 +103,22 @@ export async function generateOne(env: Env, slug?: string): Promise<{ slug?: str
   }
 }
 
+/**
+ * Encargo dejado en settings (clave webs_encargo, JSON {"days":7,"n":10,"latino":false}): el cron lo hace una vez y lo borra.
+ * Sirve para lanzar "trae altas y haz N webs" sin abrir el panel.
+ */
+export async function runOrder(env: Env): Promise<string | null> {
+  const row = await env.DB.prepare("SELECT value FROM settings WHERE key = 'webs_encargo'").first<{ value: string }>();
+  if (!row) return null;
+  await env.DB.prepare("DELETE FROM settings WHERE key = 'webs_encargo'").run();
+  const o = JSON.parse(row.value || "{}");
+  const r = await importCT(env, { days: Number(o.days) || 7, latinOnly: Boolean(o.latino) });
+  const queued = await queueBest(env, Number(o.n) || 10);
+  const msg = `encargo: ${r.raw} altas, ${r.kept} pasan filtros, ${r.added} nuevas, ${r.withWeb} con web; ${queued} en cola`;
+  await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('webs_encargo_resultado', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(msg).run();
+  return msg;
+}
+
 // ─── 3. Página pública ───────────────────────────────────────────────────────
 
 /** Lo que convierte la web en "su demo": no se indexa, barra de muestra con "La quiero" y aviso de visita. */

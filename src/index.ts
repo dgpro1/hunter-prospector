@@ -12,7 +12,7 @@ import { addNote, leadForChat, setStage } from "./store.ts";
 import { renderChat, renderQueue, renderSim } from "./views.ts";
 import { fillToday, rewriteOpeners, getQuota, importLeads, markLead, parseHunt, setQuota, today } from "./leads.ts";
 import { PAISES, runHunt } from "./hunt.ts";
-import { generateOne, panelRoute as websPanel, publicRoute as webPublic } from "./webdemos.ts";
+import { generateOne, runOrder, panelRoute as websPanel, publicRoute as webPublic } from "./webdemos.ts";
 import { evolutionReady, sendFirst, setSetting, setting, tick } from "./auto.ts";
 import type { Msg } from "./timer.ts";
 import { humanDuration } from "./timer.ts";
@@ -44,7 +44,12 @@ export default {
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     // Canal 3: una web demo por vuelta (cada web en su propia invocación, con su propio presupuesto de CPU)
     if (event.cron === WEBS_CRON) {
-      ctx.waitUntil(generateOne(env).then((r) => r.slug && console.log("webdemo", r)).catch((e) => console.error("webdemo", e)));
+      ctx.waitUntil((async () => {
+        const order = await runOrder(env);
+        if (order) return console.log("webdemo", order);   // traer altas ya gasta su vuelta
+        const r = await generateOne(env);
+        if (r.slug) console.log("webdemo", r);
+      })().catch((e) => console.error("webdemo", e)));
       return;
     }
     ctx.waitUntil((async () => {
