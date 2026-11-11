@@ -8,6 +8,7 @@ import { buildOpener, listOffers, saveOffer, suggestOffer } from "./offers.ts";
 import { rewriteOpeners } from "./leads.ts";
 import { createDemo } from "./demo.ts";
 import { linkTelegram, listAlerts, markSeen } from "./alerts.ts";
+import { pushAll, saveSubscription, vapidPublic } from "./push.ts";
 
 const now = () => new Date().toISOString();
 const BOG = "'-5 hours'"; // Bogotá no tiene horario de verano
@@ -18,6 +19,12 @@ export async function api(req: Request, url: URL, env: Env): Promise<Response> {
   if (path === "/state") return json(await state(env));
   if (path === "/alerts" && req.method === "GET") return json(await listAlerts(env));
   if (path === "/alerts/seen" && req.method === "POST") { await markSeen(env); return json({ ok: true }); }
+  if (path === "/push/key") return json({ key: vapidPublic(env) });
+  if (path === "/push/sub" && req.method === "POST") { await saveSubscription(env, await req.json()); return json({ ok: true }); }
+  if (path === "/push/test" && req.method === "POST") {
+    await env.DB.prepare("INSERT INTO alerts (id, lead, kind, text, created_at) VALUES (?, '', 'prueba', ?, ?)").bind(crypto.randomUUID(), "✅ Notificaciones activas: así te avisaré de cada prospecto caliente", new Date().toISOString()).run();
+    return json({ sent: await pushAll(env) });
+  }
   if (path === "/telegram" && req.method === "POST") return json(await linkTelegram(env));
   if (path === "/leads") return json(await leads(env));
   if (path === "/today") {

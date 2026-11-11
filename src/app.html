@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Prospector · Hunter AI</title>
 <meta name="theme-color" content="#050505">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/apple.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Prospector">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
@@ -46,7 +51,7 @@ main{padding:28px clamp(16px,3vw,36px) 90px;min-width:0}
 .btn.ghost:hover{border-color:var(--a);color:var(--a)}
 .btn.sm{padding:6px 12px;font-size:13px}
 .btn[disabled]{opacity:.45;cursor:not-allowed}
-.grid{display:grid;gap:14px}
+.grid{display:grid;gap:14px}.grid>*{min-width:0}
 .card{background:linear-gradient(180deg,var(--card),var(--bg2));border:1px solid var(--line);border-radius:var(--r);padding:18px}
 .card h3{font-size:13px;font-weight:600;color:var(--mut);text-transform:uppercase;letter-spacing:.6px;margin-bottom:14px;display:flex;align-items:center;gap:8px}
 .card h3 .r{margin-left:auto;text-transform:none;letter-spacing:0;font-weight:500}
@@ -122,7 +127,7 @@ main{padding:28px clamp(16px,3vw,36px) 90px;min-width:0}
 .step.win.on{background:var(--verde);border-color:var(--verde)}
 .fields{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .fields label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--mut)}
-.fields .full{grid-column:1/-1}
+.fields .full{grid-column:1/-1}.fields>*,.fields .in{min-width:0}.fields.f3{grid-template-columns:repeat(3,1fr)}
 .info{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
 .info div{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:9px 12px;font-size:13px;min-width:0}
 .info small{display:block;color:var(--mut);font-size:11px}
@@ -158,10 +163,24 @@ table{width:100%;border-collapse:collapse;font-size:13px}td{padding:8px 6px;bord
   .tabs .badge{position:absolute;top:0;right:22%;margin:0;font-size:9.5px;padding:0 5px}
   .today{grid-template-columns:1fr}
   .board{grid-auto-columns:82%}
-  .fields{grid-template-columns:1fr}
+  .fields,.fields.f3{grid-template-columns:1fr}
   .top h1{font-size:22px}
 }
 .skel{color:var(--dim);padding:40px 0;text-align:center}
+.top{padding-right:58px}
+.drawer.on~.bell,.drawer.on~.alerts{display:none}
+.stagebar{display:none}
+@media(max-width:860px){
+  .stagebar{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin:0 -16px 12px;padding:2px 16px;position:sticky;top:0;z-index:5;background:linear-gradient(#050505 80%,transparent)}
+  .stagebar button{flex:none;display:flex;align-items:center;gap:6px;border:1px solid var(--line2);background:var(--card);color:var(--fg);border-radius:999px;padding:8px 12px;font:inherit;font-size:13px}
+  .stagebar button.on{border-color:var(--a);background:rgba(255,106,0,.12)}
+  .stagebar small{color:var(--mut);font-weight:600}
+  .board{grid-auto-columns:calc(100% - 24px);scroll-snap-type:x mandatory}
+  .col{max-height:calc(100dvh - 330px)}
+  .lc{cursor:pointer;padding:12px 14px}.lc b{font-size:15px}
+  .btn,.step{min-height:40px}
+  .dh{padding-top:calc(14px + env(safe-area-inset-top))}
+}
 .bell{position:fixed;top:16px;right:18px;z-index:40;width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:var(--card);color:var(--fg);display:grid;place-items:center;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.35)}
 .bell svg{width:20px;height:20px}.bell .badge{position:absolute;top:-4px;right:-4px;margin:0}
 .bell.ring svg{animation:ring .9s ease-in-out 2}
@@ -239,13 +258,34 @@ async function loadAlerts(){
   seenIds=new Set(ids);if($("#alerts").classList.contains("on"))drawAlerts();
 }
 function drawAlerts(){
-  const perm="Notification"in window&&Notification.permission==="default";
-  $("#alerts").innerHTML=`<h4>Avisos ${perm?`<button class="btn ghost sm" id="perm">🔔 Activar en este equipo</button>`:""}</h4>`+
+  const perm=pushState()!=="on";
+  $("#alerts").innerHTML=`<h4>Avisos ${perm?`<button class="btn sm" id="perm">🔔 Activar avisos</button>`:""}</h4>`+
     (AL.items.length?AL.items.map(a=>`<div class="it ${a.seen?"":"new"}" data-l="${esc(a.lead)}"><div>${esc(a.text)}<small>${ago(a.created_at)}</small></div></div>`).join(""):`<div class="empty">Aquí verás cuando un prospecto responda, abra su demo, hable con el agente o agende.</div>`)+
-    (AL.telegram?"":`<div class="empty">📲 ¿Los quieres en el celular? Conecta Telegram en <a href="#envios" style="color:var(--a)">Envíos</a>.</div>`);
+    (perm?`<div class="empty">📲 Activa los avisos para que te lleguen al celular aunque la app esté cerrada${IOS&&!STANDALONE?" (en iPhone, primero instálala: Compartir → Agregar a inicio)":""}.</div>`:"");
   $("#alerts").querySelectorAll(".it").forEach(e=>e.onclick=()=>{$("#alerts").classList.remove("on");openLead(e.dataset.l)});
-  const p=$("#perm");if(p)p.onclick=async()=>{await Notification.requestPermission();drawAlerts()};
+  const p=$("#perm");if(p)p.onclick=enablePush;
 }
+// App instalable + notificaciones push
+const IOS=/iphone|ipad|ipod/i.test(navigator.userAgent),STANDALONE=matchMedia("(display-mode: standalone)").matches||navigator.standalone;
+if("serviceWorker"in navigator)navigator.serviceWorker.register("/sw.js",{scope:"/"}).catch(()=>{});
+function pushState(){if(!("Notification"in window)||!("PushManager"in window))return IOS&&!STANDALONE?"ios":"no";return Notification.permission==="granted"&&localStorage.getItem("push")==="1"?"on":Notification.permission==="denied"?"denied":"off"}
+const u8=s=>Uint8Array.from(atob((s+"===".slice((s.length+3)%4)).replace(/-/g,"+").replace(/_/g,"/")),c=>c.charCodeAt(0));
+async function enablePush(){
+  const st=pushState();
+  if(st==="ios"){toast("En iPhone: toca Compartir → Agregar a inicio, abre la app desde ahí y activa los avisos");return}
+  if(st==="no"){toast("Este navegador no admite notificaciones");return}
+  if(st==="denied"){toast("Tienes las notificaciones bloqueadas para esta web: actívalas en los ajustes del navegador");return}
+  try{
+    if(await Notification.requestPermission()!=="granted"){toast("Sin permiso no puedo avisarte");return}
+    const {key}=await get("/panel/api/push/key");if(!key){toast("Falta configurar la clave de avisos en el servidor");return}
+    const reg=await navigator.serviceWorker.ready;
+    const sub=await reg.pushManager.getSubscription()||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:u8(key)});
+    await post("/panel/api/push/sub",sub.toJSON());try{localStorage.setItem("push","1")}catch(e){}
+    const r=await post("/panel/api/push/test",{});toast(r.sent?"Listo ✅ Te llegó un aviso de prueba":"Suscrito, pero la prueba no salió");loadAlerts();drawAlerts();render()
+  }catch(e){toast("No se pudo activar: "+e.message)}
+}
+let deferredInstall=null;window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();deferredInstall=e;if(view==="envios")render()});
+async function installApp(){if(deferredInstall){deferredInstall.prompt();deferredInstall=null}else toast(IOS?"Toca Compartir → Agregar a inicio":"Abre el menú del navegador → Instalar app")}
 $("#bell").onclick=async()=>{const o=$("#alerts").classList.toggle("on");if(o){drawAlerts();if(AL.unseen){await post("/panel/api/alerts/seen",{}).catch(()=>{});AL.unseen=0;$("#belln").style.display="none"}}};
 document.addEventListener("click",e=>{if(!e.target.closest("#alerts,#bell"))$("#alerts").classList.remove("on")});
 loadAlerts();setInterval(()=>{if(document.visibilityState==="visible")loadAlerts()},20000);
@@ -346,12 +386,22 @@ function homeCharts(){
 let F={q:"",origin:"",niche:""};
 function pipelineHTML(){
   const niches=[...new Set(LEADS.map(l=>l.niche).filter(Boolean))].sort();
-  return `<div class="top"><div><h1>Pipeline</h1><p>Arrastra cada tarjeta a su etapa. Clic para abrir la ficha.</p></div><div class="actions"><button class="btn" onclick="newLead()">＋ Prospecto</button></div></div>
+  return `<div class="top"><div><h1>Pipeline</h1><p>Arrastra cada tarjeta a su etapa o ábrela para moverla.</p></div><div class="actions"><button class="btn" onclick="newLead()">＋ Prospecto</button></div></div>
   <div class="toolbar">
     <input class="in" id="fq" placeholder="🔎 Buscar nombre o ciudad" value="${esc(F.q)}" style="flex:1 1 220px">
     <select class="in" id="fo"><option value="">Todos los orígenes</option><option value="cazador" ${F.origin==="cazador"?"selected":""}>Cazador</option><option value="anuncio" ${F.origin==="anuncio"?"selected":""}>Anuncio</option><option value="manual" ${F.origin==="manual"?"selected":""}>Manual</option></select>
     <select class="in" id="fn"><option value="">Todos los nichos</option>${niches.map(n=>`<option ${F.niche===n?"selected":""}>${esc(n)}</option>`).join("")}</select>
-  </div><div class="board" id="board">${boardCols()}</div>`;
+  </div><div class="stagebar" id="stagebar">${stageBar()}</div><div class="board" id="board">${boardCols()}</div>`;
+}
+function stageBar(){
+  const q=F.q.toLowerCase();
+  const list=LEADS.filter(l=>(!q||(l.name+" "+(l.city||"")).toLowerCase().includes(q))&&(!F.origin||l.origin===F.origin)&&(!F.niche||l.niche===F.niche));
+  return STAGES.map(([k,label],i)=>`<button data-i="${i}" class="${i===0?"on":""}"><i class="dot" style="background:${STAGE_COLOR[k]}"></i>${label}<small>${list.filter(l=>l.stage===k).length}</small></button>`).join("");
+}
+function bindStageBar(){
+  const bar=$("#stagebar"),board=$("#board");if(!bar)return;
+  bar.querySelectorAll("button").forEach(b=>b.onclick=()=>{const col=board.children[+b.dataset.i];board.scrollTo({left:col.offsetLeft-board.offsetLeft,behavior:"smooth"})});
+  board.onscroll=()=>{const i=Math.round(board.scrollLeft/(board.firstElementChild.offsetWidth+12));bar.querySelectorAll("button").forEach((b,j)=>{const on=j===i;if(on&&!b.classList.contains("on"))b.scrollIntoView({inline:"center",block:"nearest",behavior:"smooth"});b.classList.toggle("on",on)})};
 }
 function boardCols(){
   const q=F.q.toLowerCase();
@@ -370,7 +420,8 @@ function card(l){
     ${l.demo_views?`<span style="color:var(--a);font-weight:600">🔥 vio la demo${l.demo_messages?` · ${l.demo_messages} msj`:""}</span>`:l.demo_views===0?`<span>🎬 demo lista</span>`:""}</div></div>`;
 }
 function bindBoard(){
-  const re=()=>{$("#board").innerHTML=boardCols();bindCards()};
+  const re=()=>{$("#board").innerHTML=boardCols();$("#stagebar").innerHTML=stageBar();bindStageBar();bindCards()};
+  bindStageBar();
   $("#fq").oninput=e=>{F.q=e.target.value;re()};$("#fo").onchange=e=>{F.origin=e.target.value;re()};$("#fn").onchange=e=>{F.niche=e.target.value;re()};
   document.querySelectorAll(".col").forEach(col=>{
     col.ondragover=e=>{e.preventDefault();col.classList.add("drop")};
@@ -484,7 +535,8 @@ function sendHTML(t){
         <p style="color:var(--dim);font-size:12px;margin-top:8px">${S.kpis.queued||0} en cola. Toma primero los de confianza alta y mejor rating y les arma la apertura con la oferta de su nicho (mitad cierre A, mitad B).</p></div>
     </div>
     <div class="card" style="padding:14px 18px"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span style="font-size:13px;color:var(--mut)">📲 Tu WhatsApp para el botón "Habla con Daniel" de las demos</span><input class="in" id="dwa" value="${esc(S.danielWa||"")}" placeholder="57 300 123 4567" style="flex:0 1 200px"><button class="btn ghost sm" id="savewa">Guardar</button></div></div>
-    <div class="card" style="padding:14px 18px"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span style="font-size:13px;color:var(--mut)">🔔 Avisos en tu celular por Telegram: ${AL.telegram?"<b style='color:var(--verde)'>conectado</b>":AL.bot?"escríbele <b>/start</b> a tu bot y toca Conectar":"falta el secreto TELEGRAM_BOT_TOKEN"}</span><button class="btn ghost sm" id="tg">${AL.telegram?"Probar de nuevo":"Conectar"}</button></div></div>
+    <div class="card" style="padding:14px 18px"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span style="font-size:13px;color:var(--mut);flex:1 1 220px">📱 App en tu celular: ${STANDALONE?"<b style='color:var(--verde)'>instalada</b>":"instálala para tenerla como app"} · Avisos: ${pushState()==="on"?"<b style='color:var(--verde)'>activos en este equipo</b>":"apagados en este equipo"}</span>${STANDALONE?"":`<button class="btn ghost sm" onclick="installApp()">Instalar app</button>`}${pushState()==="on"?"":`<button class="btn sm" onclick="enablePush()">🔔 Activar avisos</button>`}</div></div>
+    <div class="card" style="padding:14px 18px"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span style="font-size:13px;color:var(--mut)">🔔 También por Telegram (opcional): ${AL.telegram?"<b style='color:var(--verde)'>conectado</b>":AL.bot?"escríbele <b>/start</b> a tu bot y toca Conectar":"falta el secreto TELEGRAM_BOT_TOKEN"}</span><button class="btn ghost sm" id="tg">${AL.telegram?"Probar de nuevo":"Conectar"}</button></div></div>
     <div class="card"><h3>🧲 Tu oferta por nicho<span class="r" style="color:var(--mut)">Ayudo a <b style="color:var(--fg)">nicho</b> a <b style="color:var(--fg)">resultado</b> en <b style="color:var(--fg)">plazo</b> sin <b style="color:var(--fg)">lo que más odian</b></span></h3>
       <div class="grid" id="offers"><div class="empty">Cargando ofertas…</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><input class="in" id="newniche" placeholder="Nuevo nicho (ej. abogados, inmobiliarias)" style="flex:1 1 220px"><button class="btn ghost sm" id="addniche">✨ Sugerir con IA</button></div>
@@ -511,7 +563,7 @@ function offerCard(o,fresh){
   const id="o-"+Math.random().toString(36).slice(2,8);
   return `<div class="lead-row" data-offer="${id}" style="${o.status==="sugerida"?"border-color:rgba(242,179,61,.5)":""}">
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b style="font-size:15px">${esc(o.niche)}</b>${o.status==="sugerida"?`<span class="chip" style="border-color:var(--amarillo);color:var(--amarillo)">✨ Sugerida por IA · revísala</span>`:`<span class="chip" style="border-color:var(--verde);color:var(--verde)">✓ Aprobada</span>`}</div>
-    <div class="fields" style="grid-template-columns:repeat(3,1fr)">
+    <div class="fields f3">
       <label>Resultado<input class="in" name="result" value="${esc(o.result)}" placeholder="tener un 30% más de citas"></label>
       <label>Plazo<input class="in" name="timeframe" value="${esc(o.timeframe)}" placeholder="60 días"></label>
       <label>Lo que más odian<input class="in" name="pain" value="${esc(o.pain)}" placeholder="contratar a otra recepcionista"></label>

@@ -1,6 +1,7 @@
 // Avisos de momentos calientes: quedan en la campana del panel y, si conectaste Telegram, te llegan al celular.
 import type { Env } from "./crm.ts";
 import { setting, setSetting } from "./auto.ts";
+import { pushAll } from "./push.ts";
 
 export type AlertKind = "respondio" | "demo_abierta" | "demo_chat" | "cita";
 const ICON: Record<AlertKind, string> = { respondio: "💬", demo_abierta: "🔥", demo_chat: "🤖", cita: "📅" };
@@ -11,6 +12,7 @@ export async function notify(env: Env, lead: string, kind: AlertKind, text: stri
   const line = `${ICON[kind]} ${who}: ${text}`;
   await env.DB.prepare("INSERT INTO alerts (id, lead, kind, text, created_at) VALUES (?, ?, ?, ?, ?)")
     .bind(crypto.randomUUID(), lead, kind, line, new Date().toISOString()).run();
+  await pushAll(env).catch((e) => console.error("push", e));
   await telegram(env, `${line}\n\n${env.PUBLIC_URL}/panel#lead=${encodeURIComponent(lead)}`).catch((e) => console.error("telegram", e));
 }
 
@@ -40,7 +42,8 @@ export async function linkTelegram(env: Env): Promise<{ ok: boolean; error?: str
 export async function listAlerts(env: Env) {
   const rows = await env.DB.prepare("SELECT id, lead, kind, text, seen, created_at FROM alerts ORDER BY created_at DESC LIMIT 30").all();
   const unseen = await env.DB.prepare("SELECT COUNT(*) n FROM alerts WHERE seen = 0").first<{ n: number }>();
-  return { items: rows.results, unseen: unseen?.n ?? 0, telegram: Boolean(env.TELEGRAM_BOT_TOKEN && (await setting(env, "telegram_chat"))), bot: Boolean(env.TELEGRAM_BOT_TOKEN) };
+  const push = await env.DB.prepare("SELECT COUNT(*) n FROM push_subs").first<{ n: number }>();
+  return { items: rows.results, unseen: unseen?.n ?? 0, push: push?.n ?? 0, telegram: Boolean(env.TELEGRAM_BOT_TOKEN && (await setting(env, "telegram_chat"))), bot: Boolean(env.TELEGRAM_BOT_TOKEN) };
 }
 
 export async function markSeen(env: Env): Promise<void> {

@@ -7,3 +7,4 @@ CREATE TABLE IF NOT EXISTS alerts (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS alerts_seen ON alerts(seen, created_at);
+CREATE TABLE IF NOT EXISTS push_subs (endpoint TEXT PRIMARY KEY, created_at TEXT NOT NULL);

@@ -17,6 +17,7 @@ export type Env = {
   EVOLUTION_INSTANCE: string;
   EVOLUTION_API_KEY: string;
   TELEGRAM_BOT_TOKEN?: string;
+  VAPID_JWK?: string;
   PUBLIC_URL: string;
 };
 

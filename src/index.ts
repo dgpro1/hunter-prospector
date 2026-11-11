@@ -5,6 +5,7 @@ import { colorFor, prospectingStart, responseMinutes } from "./timer.ts";
 import APP from "./app.html";
 import { api } from "./api.ts";
 import { notify } from "./alerts.ts";
+import { authorized, login, loginPage, pwaAsset } from "./pwa.ts";
 import { demoChat, getDemo, renderDemo, trackView } from "./demo.ts";
 import { addNote, leadForChat, setStage } from "./store.ts";
 import { renderChat, renderQueue, renderSim } from "./views.ts";
@@ -23,8 +24,12 @@ export default {
     if (url.pathname === "/webhooks/crm" && req.method === "POST") return webhook(req, env, ctx);
     const demo = url.pathname.match(/^\/demo\/([a-z0-9-]+)(\/chat)?$/);
     if (demo) return demoRoute(req, env, ctx, demo[1], Boolean(demo[2]));
+    const asset = pwaAsset(url.pathname);
+    if (asset) return asset;
+    if (url.pathname === "/panel/login" && req.method === "POST") return login(req, env);
     if (url.pathname.startsWith("/panel")) {
-      if (!authorized(req, env)) {
+      if (!(await authorized(req, env))) {
+        if (url.pathname === "/panel" || url.pathname === "/panel/") return new Response(loginPage(), { headers: { "Content-Type": "text/html; charset=utf-8" } });
         return new Response("Acceso restringido", { status: 401, headers: { "WWW-Authenticate": 'Basic realm="Prospector"' } });
       }
       return panel(req, url, env);
@@ -41,13 +46,6 @@ export default {
   },
 };
 
-function authorized(req: Request, env: Env): boolean {
-  if (!env.PANEL_PASSWORD) return false;
-  const header = req.headers.get("Authorization") ?? "";
-  if (!header.startsWith("Basic ")) return false;
-  const [, pass] = atob(header.slice(6)).split(":");
-  return pass === env.PANEL_PASSWORD;
-}
 
 async function webhook(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
   const raw = await req.arrayBuffer();
