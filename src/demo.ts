@@ -3,6 +3,7 @@ import type { Env } from "./crm.ts";
 import { TONE } from "./brain.ts";
 import { addNote } from "./store.ts";
 import { shortName } from "./offers.ts";
+import { notify } from "./alerts.ts";
 import { compileDemoPrompt, splitAction, type Booking } from "./demoPrompt.ts";
 
 const now = () => new Date().toISOString();
@@ -44,6 +45,7 @@ export async function readWebsite(url: string | null): Promise<string | null> {
 }
 
 export async function createDemo(env: Env, leadId: string, opts: { services?: string; hours?: string } = {}): Promise<Demo> {
+  const base = env.PUBLIC_URL ?? "";
   const lead = await env.DB.prepare("SELECT * FROM leads WHERE phone = ?").bind(leadId).first<any>();
   if (!lead) throw new Error("No existe el prospecto");
   const existing = await env.DB.prepare("SELECT * FROM demos WHERE lead = ?").bind(leadId).first<Demo>();
@@ -57,7 +59,7 @@ export async function createDemo(env: Env, leadId: string, opts: { services?: st
   await env.DB.prepare(
     `INSERT INTO demos (slug, lead, business, city, category, knowledge, services, hours, rating, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).bind(slug, leadId, shortName(lead.name), lead.city, lead.category, knowledge, opts.services ?? null, opts.hours ?? null, lead.rating ?? null, now()).run();
-  await addNote(env, leadId, `Demo creada${knowledge ? " (leyó su web)" : ""}: /demo/${slug}`);
+  await addNote(env, leadId, `🔗 Demo creada${knowledge ? " (leyó su web)" : ""}: ${base}/demo/${slug}`);
   return (await env.DB.prepare("SELECT * FROM demos WHERE slug = ?").bind(slug).first<Demo>())!;
 }
 
@@ -68,7 +70,10 @@ export async function getDemo(env: Env, slug: string): Promise<Demo | null> {
 /** Primera visita: aviso en el CRM (señal de interés). */
 export async function trackView(env: Env, d: Demo): Promise<void> {
   await env.DB.prepare("UPDATE demos SET views = views + 1, last_view_at = ? WHERE slug = ?").bind(now(), d.slug).run();
-  if (d.views === 0) await addNote(env, d.lead, "🔥 Abrió la demo por primera vez");
+  if (d.views === 0) {
+    await addNote(env, d.lead, "🔥 Abrió la demo por primera vez");
+    await notify(env, d.lead, "demo_abierta", "abrió su demo por primera vez");
+  }
 }
 
 export async function demoChat(env: Env, d: Demo, history: { role: string; content: string }[], own = false): Promise<{ text: string; booking: Booking | null }> {
@@ -86,11 +91,15 @@ export async function demoChat(env: Env, d: Demo, history: { role: string; conte
   await env.DB.prepare("INSERT INTO demo_messages (slug, day, created_at) VALUES (?, ?, ?)").bind(d.slug, today, now()).run();
   if (!own) {
     await env.DB.prepare("UPDATE demos SET messages = messages + 1 WHERE slug = ?").bind(d.slug).run();
-    if (d.messages === 0) await addNote(env, d.lead, "💬 Empezó a probar la demo");
+    if (d.messages === 0) {
+      await addNote(env, d.lead, "💬 Empezó a probar la demo");
+      await notify(env, d.lead, "demo_chat", `empezó a hablar con el agente: “${String(history.at(-1)?.content ?? "").slice(0, 120)}”`);
+    }
     if (booking) {
       await env.DB.prepare("UPDATE demos SET bookings = bookings + 1 WHERE slug = ?").bind(d.slug).run();
       const what = [booking.item_or_service, booking.datetime_or_details].filter(Boolean).join(" · ");
       await addNote(env, d.lead, `📅 Agendó una cita de prueba en la demo${what ? `: ${what}` : ""}`);
+      await notify(env, d.lead, "cita", `llegó a la agenda en la demo${what ? ` (${what})` : ""}`);
     }
   }
   return { text, booking };

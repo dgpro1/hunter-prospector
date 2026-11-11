@@ -14,6 +14,8 @@ crons = ["*/10 * * * *"]   # Canal 1: un envío como mucho por vuelta
 binding = "AI"
 
 [vars]
+# URL pública del worker (para los links de los avisos)
+PUBLIC_URL = "https://hunter-prospector.besteampd.workers.dev"
 # URL base del CRM Hunter AI, sin barra final (ej. https://app.tudominio.com)
 CRM_BASE_URL = "https://app.hunterai.site"
 # UUID del cliente de prospección. Si se deja vacío, el worker lo aprende del primer webhook firmado

@@ -162,6 +162,18 @@ table{width:100%;border-collapse:collapse;font-size:13px}td{padding:8px 6px;bord
   .top h1{font-size:22px}
 }
 .skel{color:var(--dim);padding:40px 0;text-align:center}
+.bell{position:fixed;top:16px;right:18px;z-index:40;width:44px;height:44px;border-radius:50%;border:1px solid var(--line);background:var(--card);color:var(--fg);display:grid;place-items:center;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.35)}
+.bell svg{width:20px;height:20px}.bell .badge{position:absolute;top:-4px;right:-4px;margin:0}
+.bell.ring svg{animation:ring .9s ease-in-out 2}
+@keyframes ring{0%,100%{transform:rotate(0)}20%{transform:rotate(14deg)}40%{transform:rotate(-12deg)}60%{transform:rotate(8deg)}80%{transform:rotate(-4deg)}}
+.alerts{position:fixed;top:68px;right:18px;z-index:41;width:min(360px,calc(100vw - 32px));max-height:70vh;overflow:auto;background:#0f0c0a;border:1px solid var(--line);border-radius:16px;box-shadow:0 20px 50px rgba(0,0,0,.5);display:none}
+.alerts.on{display:block}
+.alerts h4{margin:0;padding:14px 16px;font-size:14px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center}
+.alerts .it{display:flex;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);cursor:pointer;font-size:13px;line-height:1.4}
+.alerts .it:hover{background:var(--card)}.alerts .it.new{background:rgba(255,106,0,.07)}
+.alerts .it small{display:block;color:var(--mut);font-size:11px;margin-top:2px}
+.alerts .empty{padding:24px 16px;color:var(--mut);font-size:13px;text-align:center}
+@media(max-width:860px){.bell{top:10px;right:12px;width:40px;height:40px}.alerts{top:58px;right:12px}}
 </style>
 </head>
 <body>
@@ -177,6 +189,8 @@ table{width:100%;border-collapse:collapse;font-size:13px}td{padding:8px 6px;bord
 <div class="scrim" id="scrim"></div>
 <aside class="drawer" id="drawer"></aside>
 <div class="toast" id="toast"></div>
+<button class="bell" id="bell" aria-label="Avisos"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg><span class="badge" id="belln" style="display:none"></span></button>
+<div class="alerts" id="alerts"></div>
 
 <script>
 const $=s=>document.querySelector(s);
@@ -193,7 +207,7 @@ const ICON={
   sim:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3h6M10 3v6L4 19a1 1 0 0 0 .9 1.5h14.2A1 1 0 0 0 20 19l-6-10V3"/></svg>'
 };
 const VIEWS=[["inicio","Inicio"],["pipeline","Pipeline"],["envios","Envíos"],["bandeja","Bandeja"],["sim","Simulador"]];
-let S=null, LEADS=null, charts={}, view=location.hash.slice(1)||"inicio";
+let S=null, LEADS=null, charts={}, view=location.hash.startsWith("#lead=")?"inicio":(location.hash.slice(1)||"inicio");
 
 function toast(t){const e=$("#toast");e.textContent=t;e.classList.add("on");clearTimeout(e._t);e._t=setTimeout(()=>e.classList.remove("on"),3200)}
 async function get(u){const r=await fetch(u,{cache:"no-store"});if(!r.ok)throw new Error(r.status);return r.json()}
@@ -212,7 +226,29 @@ function nav(){
   $("#tabs").innerHTML=VIEWS.map(link).join("");
   if(S){const s=S.sending;$("#sidefoot").innerHTML=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">${dot(s.auto?"verde":"gris")}<b>Envío ${s.auto?"encendido":"apagado"}</b></div>Hoy ${s.sentToday} de ${s.quota} enviados${s.ready?"":"<br><span style='color:var(--amarillo)'>Falta conectar Evolution</span>"}`}
 }
-window.addEventListener("hashchange",()=>{view=location.hash.slice(1)||"inicio";render()});
+window.addEventListener("hashchange",()=>{const h=location.hash.slice(1);if(h.startsWith("lead=")){openLead(decodeURIComponent(h.slice(5)));return}view=h||"inicio";render()});
+
+// Avisos: campana + notificación del navegador mientras el panel está abierto
+let AL={items:[],unseen:0},seenIds=null;
+async function loadAlerts(){
+  try{AL=await get("/panel/api/alerts")}catch(e){return}
+  const n=$("#belln");n.style.display=AL.unseen?"":"none";n.textContent=AL.unseen>9?"9+":AL.unseen;
+  const ids=AL.items.map(a=>a.id);
+  if(seenIds){const fresh=AL.items.filter(a=>!seenIds.has(a.id));if(fresh.length){$("#bell").classList.remove("ring");void $("#bell").offsetWidth;$("#bell").classList.add("ring");toast(fresh[0].text);
+    if("Notification"in window&&Notification.permission==="granted")fresh.slice(0,3).forEach(a=>{const no=new Notification("Prospector",{body:a.text,tag:a.id});no.onclick=()=>{window.focus();openLead(a.lead)}})}}
+  seenIds=new Set(ids);if($("#alerts").classList.contains("on"))drawAlerts();
+}
+function drawAlerts(){
+  const perm="Notification"in window&&Notification.permission==="default";
+  $("#alerts").innerHTML=`<h4>Avisos ${perm?`<button class="btn ghost sm" id="perm">🔔 Activar en este equipo</button>`:""}</h4>`+
+    (AL.items.length?AL.items.map(a=>`<div class="it ${a.seen?"":"new"}" data-l="${esc(a.lead)}"><div>${esc(a.text)}<small>${ago(a.created_at)}</small></div></div>`).join(""):`<div class="empty">Aquí verás cuando un prospecto responda, abra su demo, hable con el agente o agende.</div>`)+
+    (AL.telegram?"":`<div class="empty">📲 ¿Los quieres en el celular? Conecta Telegram en <a href="#envios" style="color:var(--a)">Envíos</a>.</div>`);
+  $("#alerts").querySelectorAll(".it").forEach(e=>e.onclick=()=>{$("#alerts").classList.remove("on");openLead(e.dataset.l)});
+  const p=$("#perm");if(p)p.onclick=async()=>{await Notification.requestPermission();drawAlerts()};
+}
+$("#bell").onclick=async()=>{const o=$("#alerts").classList.toggle("on");if(o){drawAlerts();if(AL.unseen){await post("/panel/api/alerts/seen",{}).catch(()=>{});AL.unseen=0;$("#belln").style.display="none"}}};
+document.addEventListener("click",e=>{if(!e.target.closest("#alerts,#bell"))$("#alerts").classList.remove("on")});
+loadAlerts();setInterval(()=>{if(document.visibilityState==="visible")loadAlerts()},20000);
 
 async function load(){S=await get("/panel/api/state");nav()}
 async function loadLeads(){LEADS=await get("/panel/api/leads")}
@@ -448,6 +484,7 @@ function sendHTML(t){
         <p style="color:var(--dim);font-size:12px;margin-top:8px">${S.kpis.queued||0} en cola. Toma primero los de confianza alta y mejor rating y les arma la apertura con la oferta de su nicho (mitad cierre A, mitad B).</p></div>
     </div>
     <div class="card" style="padding:14px 18px"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span style="font-size:13px;color:var(--mut)">📲 Tu WhatsApp para el botón "Habla con Daniel" de las demos</span><input class="in" id="dwa" value="${esc(S.danielWa||"")}" placeholder="57 300 123 4567" style="flex:0 1 200px"><button class="btn ghost sm" id="savewa">Guardar</button></div></div>
+    <div class="card" style="padding:14px 18px"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span style="font-size:13px;color:var(--mut)">🔔 Avisos en tu celular por Telegram: ${AL.telegram?"<b style='color:var(--verde)'>conectado</b>":AL.bot?"escríbele <b>/start</b> a tu bot y toca Conectar":"falta el secreto TELEGRAM_BOT_TOKEN"}</span><button class="btn ghost sm" id="tg">${AL.telegram?"Probar de nuevo":"Conectar"}</button></div></div>
     <div class="card"><h3>🧲 Tu oferta por nicho<span class="r" style="color:var(--mut)">Ayudo a <b style="color:var(--fg)">nicho</b> a <b style="color:var(--fg)">resultado</b> en <b style="color:var(--fg)">plazo</b> sin <b style="color:var(--fg)">lo que más odian</b></span></h3>
       <div class="grid" id="offers"><div class="empty">Cargando ofertas…</div></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><input class="in" id="newniche" placeholder="Nuevo nicho (ej. abogados, inmobiliarias)" style="flex:1 1 220px"><button class="btn ghost sm" id="addniche">✨ Sugerir con IA</button></div>
@@ -508,6 +545,7 @@ async function loadOffers(){
 }
 function bindSend(){
   loadOffers();
+  $("#tg").onclick=async()=>{const d=await post("/panel/api/telegram",{}).catch(e=>({error:e.message}));if(d.ok){toast("Telegram conectado ✅ Te mandé un mensaje de prueba");await loadAlerts();render()}else toast(d.error||"No se pudo")};
   $("#savewa").onclick=async()=>{await post("/panel/api/settings",{daniel_wa:$("#dwa").value});toast("Guardado: las demos llevan tu WhatsApp")};
   const busy=(b,t)=>{b.disabled=true;b.dataset.t=b.textContent;b.textContent=t};
   $("#sw").onclick=async()=>{const fd=new FormData();fd.set("on",S.sending.auto?"off":"on");const d=await postForm("/panel/cola/auto",fd);toast(d.message||"Listo");render()};
@@ -530,6 +568,7 @@ function inboxHTML(d){
 async function inboxAct(id,a){const fd=new FormData();fd.set("text",$("#d-"+id).value);await fetch(`/panel/drafts/${id}/${a}`,{method:"POST",body:fd});toast(a==="send"?"Enviado por el CRM":"Descartado");render()}
 
 render();
+if(location.hash.startsWith("#lead="))openLead(decodeURIComponent(location.hash.slice(6)));
 setInterval(()=>{if(!CUR&&document.visibilityState==="visible"&&view!=="envios")render()},60000);
 </script>
 </body>

@@ -16,6 +16,8 @@ export type Env = {
   EVOLUTION_URL: string;
   EVOLUTION_INSTANCE: string;
   EVOLUTION_API_KEY: string;
+  TELEGRAM_BOT_TOKEN?: string;
+  PUBLIC_URL: string;
 };
 
 async function call(env: Env, path: string, init: RequestInit = {}): Promise<any> {

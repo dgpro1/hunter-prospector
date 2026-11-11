@@ -7,6 +7,7 @@ import { PAISES } from "./hunt.ts";
 import { buildOpener, listOffers, saveOffer, suggestOffer } from "./offers.ts";
 import { rewriteOpeners } from "./leads.ts";
 import { createDemo } from "./demo.ts";
+import { linkTelegram, listAlerts, markSeen } from "./alerts.ts";
 
 const now = () => new Date().toISOString();
 const BOG = "'-5 hours'"; // Bogotá no tiene horario de verano
@@ -15,6 +16,9 @@ const json = (data: unknown, status = 200) => Response.json(data, { status, head
 export async function api(req: Request, url: URL, env: Env): Promise<Response> {
   const path = url.pathname.replace(/^\/panel\/api/, "");
   if (path === "/state") return json(await state(env));
+  if (path === "/alerts" && req.method === "GET") return json(await listAlerts(env));
+  if (path === "/alerts/seen" && req.method === "POST") { await markSeen(env); return json({ ok: true }); }
+  if (path === "/telegram" && req.method === "POST") return json(await linkTelegram(env));
   if (path === "/leads") return json(await leads(env));
   if (path === "/today") {
     const r = await env.DB.prepare("SELECT * FROM leads WHERE day = ? ORDER BY status = 'enviado', rowid").bind(today()).all();

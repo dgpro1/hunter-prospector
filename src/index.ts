@@ -4,6 +4,7 @@ import { classify, draft, pickBranch, TONE } from "./brain.ts";
 import { colorFor, prospectingStart, responseMinutes } from "./timer.ts";
 import APP from "./app.html";
 import { api } from "./api.ts";
+import { notify } from "./alerts.ts";
 import { demoChat, getDemo, renderDemo, trackView } from "./demo.ts";
 import { addNote, leadForChat, setStage } from "./store.ts";
 import { renderChat, renderQueue, renderSim } from "./views.ts";
@@ -123,7 +124,10 @@ async function handleReply(env: Env, data: any): Promise<void> {
     `UPDATE leads SET color = COALESCE(color, ?), response_minutes = COALESCE(response_minutes, ?), replied_at = COALESCE(replied_at, ?),
        who_replied = CASE WHEN ? = 'desconocido' THEN who_replied ELSE ? END, updated_at = ? WHERE phone = ?`,
   ).bind(color, minutes, firstIn, who, who, now(), lead).run();
-  if (isFirstReply) await addNote(env, lead, `Respondió${minutes !== null ? ` en ${humanDuration(minutes)}` : ""}: “${String(data.content ?? "").slice(0, 140)}”`);
+  if (isFirstReply) {
+    await addNote(env, lead, `Respondió${minutes !== null ? ` en ${humanDuration(minutes)}` : ""}: “${String(data.content ?? "").slice(0, 140)}”`);
+    await notify(env, lead, "respondio", `respondió${minutes !== null ? ` en ${humanDuration(minutes)}` : ""}: “${String(data.content ?? "").slice(0, 120)}”`);
+  }
   if (intent === "no_interesa") await setStage(env, lead, "perdido", "dijo que no le interesa");
   else {
     const cur = await env.DB.prepare("SELECT stage FROM leads WHERE phone = ?").bind(lead).first<{ stage: string }>();
