@@ -160,6 +160,11 @@ export async function publicRoute(req: Request, env: Env, slug: string, sub: str
     return new Response(null, { status: 204 });
   }
   if (sub === "/quiero") return wantIt(req, env, d);
+  // Web bilingüe para un dueño latino: abre en español
+  if (!sub && d.audience === "es" && !url.searchParams.has("lang")) {
+    url.searchParams.set("lang", "es");
+    return Response.redirect(url.toString(), 302);
+  }
   return new Response(decorate(d.html, d, url.searchParams.has("yo")), {
     headers: { "Content-Type": "text/html; charset=utf-8", "X-Robots-Tag": "noindex, nofollow", "Cache-Control": "no-store" },
   });

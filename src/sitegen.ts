@@ -340,6 +340,24 @@ export async function writeTexts(env: Env, facts: Facts, items: Item[], template
 const add = (a: Usage, b: Usage): Usage => ({ prompt_tokens: (a.prompt_tokens ?? 0) + (b.prompt_tokens ?? 0), completion_tokens: (a.completion_tokens ?? 0) + (b.completion_tokens ?? 0), cost: (a.cost ?? 0) + (b.cost ?? 0) });
 const ENGLISH_ONLY_CSS = '<style>/* demo solo en inglés */.lang-switch,.lang[role="group"],[data-set-lang],[data-lang-btn],button[data-lang]{display:none!important}</style>';
 
+/**
+ * Red de seguridad para modelos chicos que a veces ponen un texto en el hueco equivocado:
+ * - el logo con palabras del ejemplo lleva siempre la marca real;
+ * - un texto corto que vuelve 1,8 veces más largo se descarta (se queda el original si no nombra al ejemplo).
+ */
+export function guard(items: Item[], texts: Texts, terms: string[], brand: string): Texts {
+  const out: Texts = { ...texts };
+  const sample = (t: string) => terms.some((w) => fold(t).includes(fold(w)));
+  for (const i of items) {
+    const orig = String(i.en ?? i.text ?? "");
+    if (/logo/i.test(i.slot) && i.kind === "text" && sample(orig)) { out[i.id] = { en: brand, es: brand }; continue; }
+    const t = out[i.id];
+    if (!t || orig.length > 40) continue;
+    if (t.en.length > orig.length * 1.8 + 6 && !sample(orig)) delete out[i.id];
+  }
+  return out;
+}
+
 function englishOnly(audience: Audience, items: Item[], texts: Texts): Texts {
   if (audience !== "en") return texts;
   const out = { ...texts };
@@ -360,7 +378,7 @@ export async function buildSite(env: Env, sites: Record<string, Compiled>, busin
   const own = [facts.email, facts.phone];
 
   const first = await write(env, facts, items, template, terms, audience, engine);
-  let texts = englishOnly(audience, items, first.texts);
+  let texts = englishOnly(audience, items, guard(items, first.texts, terms, facts.brand));
   let usage = add({}, first.usage);
   let html = renderSite(c, { texts, drop, facts: renderFacts });
   let left = findLeftovers(html, terms, own);
@@ -371,7 +389,7 @@ export async function buildSite(env: Env, sites: Record<string, Compiled>, busin
     }).filter((i) => findLeftovers(`${i.en ?? ""} ${i.es ?? ""} ${i.text ?? ""}`, left, own).length);
     if (stillBad.length) {
       const second = await write(env, facts, stillBad, template, left, audience, engine);
-      texts = englishOnly(audience, items, { ...texts, ...second.texts });
+      texts = englishOnly(audience, items, { ...texts, ...guard(items, second.texts, terms, facts.brand) });
       usage = add(usage, second.usage);
       html = renderSite(c, { texts, drop, facts: renderFacts });
       left = findLeftovers(html, terms, own);
