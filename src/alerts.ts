@@ -2,14 +2,17 @@
 import type { Env } from "./crm.ts";
 import { setting, setSetting } from "./auto.ts";
 import { pushAll } from "./push.ts";
+import { shortNumber } from "./lines.ts";
 
 export type AlertKind = "respondio" | "demo_abierta" | "demo_chat" | "cita";
 const ICON: Record<AlertKind, string> = { respondio: "💬", demo_abierta: "🔥", demo_chat: "🤖", cita: "📅" };
 
 export async function notify(env: Env, lead: string, kind: AlertKind, text: string): Promise<void> {
-  const l = await env.DB.prepare("SELECT name, city FROM leads WHERE phone = ?").bind(lead).first<{ name: string; city: string | null }>();
+  const l = await env.DB.prepare("SELECT l.name, l.city, l.line, li.label FROM leads l LEFT JOIN lines li ON li.number = l.line WHERE l.phone = ?")
+    .bind(lead).first<{ name: string; city: string | null; line: string | null; label: string | null }>();
   const who = l ? `${l.name}${l.city ? ` (${l.city})` : ""}` : lead;
-  const line = `${ICON[kind]} ${who}: ${text}`;
+  const via = l?.line ? ` · 📞 ${l.label ?? "Línea"} (${shortNumber(l.line)})` : "";
+  const line = `${ICON[kind]} ${who}: ${text}${via}`;
   await env.DB.prepare("INSERT INTO alerts (id, lead, kind, text, created_at) VALUES (?, ?, ?, ?, ?)")
     .bind(crypto.randomUUID(), lead, kind, line, new Date().toISOString()).run();
   await pushAll(env).catch((e) => console.error("push", e));

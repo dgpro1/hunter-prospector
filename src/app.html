@@ -108,7 +108,7 @@ main{padding:28px clamp(16px,3vw,36px) 90px;min-width:0}
 .lc b{display:block;font-size:13.5px;line-height:1.3;margin-bottom:5px}
 .lc .m{display:flex;gap:6px;flex-wrap:wrap;align-items:center;font-size:11.5px;color:var(--mut)}
 .tag{border-radius:6px;padding:1px 6px;font-size:11px;font-weight:600;background:#1c1610;color:var(--mut)}
-.tag.anuncio{background:rgba(167,139,250,.14);color:var(--violeta)}.tag.cazador{background:rgba(90,169,255,.12);color:var(--azul)}.tag.manual{background:#1c1610}
+.tag.line{background:rgba(53,196,124,.12);color:var(--verde)}.tag.anuncio{background:rgba(167,139,250,.14);color:var(--violeta)}.tag.cazador{background:rgba(90,169,255,.12);color:var(--azul)}.tag.manual{background:#1c1610}
 .due{color:var(--rojo)!important;font-weight:600}
 .more{color:var(--mut);font-size:12px;text-align:center;padding:6px}
 /* Drawer */
@@ -167,6 +167,10 @@ table{width:100%;border-collapse:collapse;font-size:13px}td{padding:8px 6px;bord
   .top h1{font-size:22px}
 }
 .skel{color:var(--dim);padding:40px 0;text-align:center}
+.lines{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
+.ln{background:#0d0a08;border:1px solid var(--line);border-radius:14px;padding:12px 14px}
+.lh{display:flex;align-items:center;gap:8px}.lh small{color:var(--mut)}.lh .btn{margin-left:auto;min-height:0;padding:3px 8px}
+.lk{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:10px;text-align:center}.lk b{display:block;font-size:15px;white-space:nowrap}.lk small{color:var(--mut);font-size:10.5px}
 .top{padding-right:58px}
 .drawer.on~.bell,.drawer.on~.alerts{display:none}
 .stagebar{display:none}
@@ -348,6 +352,7 @@ function homeHTML(){
       <div class="card"><h3>Apertura A vs B</h3>${abHTML()}</div>
       <div class="card"><h3>Nichos</h3>${nichesHTML()}</div>
     </div>
+    <div class="card"><h3>Tus líneas<span class="r" style="color:var(--mut)">qué número responde mejor</span></h3>${linesHTML()}</div>
     <div class="grid row2">
       <div class="card"><h3>Agenda · próximas acciones</h3><div class="list">${
         S.agenda.length?S.agenda.map(a=>{const late=Date.parse(a.next_at)<Date.now();return `<div class="li" onclick="openLead('${esc(a.phone)}')"><span style="font-size:18px">${late?"⏰":"📅"}</span><div class="t"><b>${esc(a.name)}</b><small class="${late?"due":""}">${esc(a.next_text||"Seguimiento")} · ${when(a.next_at)}</small></div><span class="tag">${SL[a.stage]}</span></div>`}).join(""):`<div class="empty">Sin acciones programadas. Abre una ficha y ponle fecha al siguiente paso.</div>`}</div></div>
@@ -362,6 +367,14 @@ function abHTML(){
   const tot=v.A.sent+v.B.sent;
   return row("A","pregunta espejo")+row("B","demo directa")+`<small style="color:var(--dim)">${tot<30?"Con menos de 30 envíos aún no hay ganador claro.":"Gana la de mayor % de respuesta."}</small>`;
 }
+function linesHTML(){
+  const L=S.lines||[];
+  if(!L.length)return`<div class="empty">Cuando un negocio te conteste por una de tus líneas de prospección, aparecerá aquí con sus números.</div>`;
+  return `<div class="lines">${L.map(x=>{const rate=x.chats?Math.round(100*x.replied/x.chats):0;return`<div class="ln"><div class="lh"><b>📞 ${esc(x.label)}</b><small>…${esc(x.number.slice(-4))}</small><button class="btn ghost sm" onclick="renameLine('${esc(x.number)}','${esc(x.label)}')">✏️</button></div>
+    <div class="lk"><div><b>${x.chats}</b><small>chats</small></div><div><b>${x.replied||0}</b><small>respondieron</small></div><div><b>${dur(x.avg_response)}</b><small>tardan</small></div><div><b>${x.hot||0}</b><small>calientes</small></div></div>
+    <div class="bar" style="height:6px;border-radius:6px;background:#1a140f;margin-top:10px;position:relative;overflow:hidden"><i style="position:absolute;inset:0 auto 0 0;width:${rate}%;background:linear-gradient(90deg,#35c47c,#9be7bf)"></i></div></div>`}).join("")}</div>`;
+}
+async function renameLine(n,cur){const v=prompt("Nombre de esta línea",cur);if(!v)return;try{S.lines=await post("/panel/api/lines",{number:n,label:v});toast("Línea renombrada");render()}catch(e){toast("Error: "+e.message)}}
 function nichesHTML(){
   if(!S.niches.length)return`<div class="empty">Caza tu primer nicho en Envíos.</div>`;
   const max=Math.max(...S.niches.map(n=>n.n));
@@ -415,6 +428,7 @@ function card(l){
   const late=l.next_at&&Date.parse(l.next_at)<Date.now();
   return `<div class="lc" draggable="true" data-id="${esc(l.phone)}"><b>${esc(l.name)}</b><div class="m">
     ${l.color?dot(l.color):""}<span class="tag ${esc(l.origin)}">${esc(l.origin)}</span>${l.city?`<span>${esc(l.city)}</span>`:""}${l.rating?`<span>⭐ ${l.rating}</span>`:""}
+    ${l.line?`<span class="tag line">📞 ${esc(l.line_label||"Línea")}</span>`:""}
     ${l.value?`<span style="color:var(--verde);font-weight:600">${money(l.value)}</span>`:""}
     ${l.next_at?`<span class="${late?"due":""}">${late?"⏰":"📅"} ${when(l.next_at)}</span>`:""}
     ${l.demo_views?`<span style="color:var(--a);font-weight:600">🔥 vio la demo${l.demo_messages?` · ${l.demo_messages} msj`:""}</span>`:l.demo_views===0?`<span>🎬 demo lista</span>`:""}</div></div>`;
@@ -459,6 +473,7 @@ function drawLead(){
       <div><small>Maps</small><span>${l.maps_url?`<a href="${esc(l.maps_url)}" target="_blank">Ver ficha</a>`:"—"}</span></div>
       <div><small>Contactado</small><span>${l.sent_at?when(l.sent_at):"Aún no"}</span></div>
       <div><small>Quién contestó</small><span>${esc(l.who_replied||"—")}</span></div>
+      <div><small>Tu línea</small><span>${l.line?`📞 ${esc(l.line_label||"Línea")} · …${esc(l.line.slice(-4))}`:"—"}</span></div>
     </div>
     <div class="fields">
       <label>Valor del trato (USD)<input class="in" id="fv" type="number" min="0" step="50" value="${l.value??""}" placeholder="800 / 2.500 / 3.500"></label>

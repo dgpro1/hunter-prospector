@@ -7,6 +7,7 @@ import { PAISES } from "./hunt.ts";
 import { buildOpener, listOffers, saveOffer, suggestOffer } from "./offers.ts";
 import { rewriteOpeners } from "./leads.ts";
 import { createDemo } from "./demo.ts";
+import { listLines, renameLine } from "./lines.ts";
 import { linkTelegram, listAlerts, markSeen } from "./alerts.ts";
 import { pushAll, saveSubscription, vapidPublic } from "./push.ts";
 
@@ -17,6 +18,7 @@ const json = (data: unknown, status = 200) => Response.json(data, { status, head
 export async function api(req: Request, url: URL, env: Env): Promise<Response> {
   const path = url.pathname.replace(/^\/panel\/api/, "");
   if (path === "/state") return json(await state(env));
+  if (path === "/lines" && req.method === "POST") { const b: any = await req.json(); await renameLine(env, String(b.number ?? ""), String(b.label ?? "")); return json(await listLines(env)); }
   if (path === "/alerts" && req.method === "GET") return json(await listAlerts(env));
   if (path === "/alerts/seen" && req.method === "POST") { await markSeen(env); return json({ ok: true }); }
   if (path === "/push/key") return json({ key: vapidPublic(env) });
@@ -130,6 +132,7 @@ async function state(env: Env) {
     colors: colors.results ?? [],
     variants: variants.results ?? [],
     niches: niches.results ?? [],
+    lines: await listLines(env),
     activity: activity.results ?? [],
     agenda: agenda.results ?? [],
     hunts: hunts.results ?? [],
@@ -150,14 +153,15 @@ async function state(env: Env) {
 async function leads(env: Env) {
   const r = await env.DB.prepare(
     `SELECT l.phone, l.name, l.city, l.niche, l.rating, l.stage, l.origin, l.color, l.value, l.next_at, l.next_text, l.status, l.sent_at,
-            l.replied_at, l.response_minutes, l.variant, l.conversation_id, l.updated_at, d.views AS demo_views, d.messages AS demo_messages
-     FROM leads l LEFT JOIN demos d ON d.lead = l.phone WHERE l.status != 'descartado' ORDER BY l.updated_at DESC LIMIT 1500`,
+            l.replied_at, l.response_minutes, l.variant, l.conversation_id, l.updated_at, d.views AS demo_views, d.messages AS demo_messages,
+            l.line, li.label AS line_label
+     FROM leads l LEFT JOIN demos d ON d.lead = l.phone LEFT JOIN lines li ON li.number = l.line WHERE l.status != 'descartado' ORDER BY l.updated_at DESC LIMIT 1500`,
   ).all();
   return r.results ?? [];
 }
 
 async function leadDetail(env: Env, id: string) {
-  const lead = await env.DB.prepare("SELECT * FROM leads WHERE phone = ?").bind(id).first<any>();
+  const lead = await env.DB.prepare("SELECT l.*, li.label AS line_label FROM leads l LEFT JOIN lines li ON li.number = l.line WHERE l.phone = ?").bind(id).first<any>();
   if (!lead) return { error: "No existe" };
   const notes = await env.DB.prepare("SELECT * FROM notes WHERE lead = ? ORDER BY created_at DESC LIMIT 100").bind(id).all();
   const draft = lead.conversation_id

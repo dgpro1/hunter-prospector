@@ -5,6 +5,7 @@ import { colorFor, prospectingStart, responseMinutes } from "./timer.ts";
 import APP from "./app.html";
 import { api } from "./api.ts";
 import { notify } from "./alerts.ts";
+import { lineLabel } from "./lines.ts";
 import { authorized, login, loginPage, pwaAsset } from "./pwa.ts";
 import { demoChat, getDemo, renderDemo, trackView } from "./demo.ts";
 import { addNote, leadForChat, setStage } from "./store.ts";
@@ -118,6 +119,15 @@ async function handleReply(env: Env, data: any): Promise<void> {
 
   // CRM: la respuesta queda en la ficha del prospecto.
   const lead = await leadForChat(env, data);
+  if (data.number) {
+    const label = await lineLabel(env, String(data.number));
+    const num = String(data.number).replace(/\D/g, "");
+    const had = await env.DB.prepare("SELECT line FROM leads WHERE phone = ?").bind(lead).first<{ line: string | null }>();
+    if (!had?.line) {
+      await env.DB.prepare("UPDATE leads SET line = ? WHERE phone = ?").bind(num, lead).run();
+      await addNote(env, lead, `📞 Conversación por ${label} (…${num.slice(-4)})`);
+    }
+  }
   await env.DB.prepare(
     `UPDATE leads SET color = COALESCE(color, ?), response_minutes = COALESCE(response_minutes, ?), replied_at = COALESCE(replied_at, ?),
        who_replied = CASE WHEN ? = 'desconocido' THEN who_replied ELSE ? END, updated_at = ? WHERE phone = ?`,
