@@ -3,7 +3,7 @@
 import type { Env } from "./crm.ts";
 import { TONE } from "./brain.ts";
 
-export const OPENER_V = 3; // versión de la fórmula: las aperturas más viejas se reescriben
+export const OPENER_V = 4; // versión de la fórmula: las aperturas más viejas se reescriben
 
 export type Offer = {
   niche_key: string; niche: string; result: string; timeframe: string; pain: string;
@@ -15,7 +15,12 @@ export const nicheKey = (s: unknown) =>
 
 /** "Clínica Dental Comfortdent | Dra. X - Implantes" → "Clínica Dental Comfortdent" */
 export function shortName(name: string): string {
-  const s = String(name ?? "").split(/\s[|·–—-]\s|[|(]/)[0].trim();
+  let s = String(name ?? "").split(/\s[|·–—-]\s|[|(]/)[0].trim();
+  // "CIRUJANO DENTISTA LAS 24 HRS" → "Cirujano Dentista las 24 Hrs": en mayúsculas parece spam
+  if (s === s.toUpperCase() && /[A-ZÁÉÍÓÚÑ]{4}/.test(s)) {
+    s = s.toLowerCase().replace(/(^|\s)(\S)/g, (_m, sp, c) => sp + c.toUpperCase())
+      .replace(/\s(De|Del|La|Las|Los|Y|En)(?=\s)/g, (m) => m.toLowerCase());
+  }
   return s.length > 48 ? s.slice(0, 48).replace(/\s+\S*$/, "") : s;
 }
 

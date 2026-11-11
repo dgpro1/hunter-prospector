@@ -16,3 +16,7 @@ test("claves de nicho sin tildes", () => {
   assert.equal(nicheKey("Clínicas  Dentales"), "clinicas dentales");
   assert.equal(shortName("Abogados García & Asociados (Despacho)"), "Abogados García & Asociados");
 });
+
+test("nombres en mayúsculas se suavizan", () => {
+  assert.equal(shortName("CIRUJANO DENTISTA LAS 24 HRS GUADALAJARA"), "Cirujano Dentista las 24 Hrs Guadalajara");
+});
