@@ -112,7 +112,7 @@ export async function fillToday(env: Env): Promise<number> {
     await Promise.all(list.slice(i, i + 5).map(async (lead: any, j: number) => {
       const variant = (i + j + (used?.n ?? 0)) % 2 === 0 ? "A" : "B";
       const opener = await writeOpener(env, lead, variant).catch(() => fallbackOpener(lead, variant));
-      await env.DB.prepare("UPDATE leads SET status = 'hoy', day = ?, variant = ?, opener = ? WHERE phone = ?")
+      await env.DB.prepare("UPDATE leads SET status = 'hoy', day = ?, variant = ?, opener = ?, opener_v = 2 WHERE phone = ?")
         .bind(day, variant, opener, lead.phone).run();
     }));
   }
@@ -131,6 +131,7 @@ async function writeOpener(env: Env, lead: any, variant: string): Promise<string
     "Máximo 3 frases cortas, cercano y premium, como mucho 1 emoji, sin precios, sin links, sin markdown.",
     toneFor(lead.phone),
     VARIANT[variant] ?? VARIANT.A,
+    "Usa signos de apertura (¡ ¿). Escribe UN SOLO mensaje, de la variante indicada: sin títulos, sin etiquetas, sin opciones ni explicaciones.",
     "Devuelve solo el texto del mensaje.",
   ].join("\n");
   const about = [
@@ -144,9 +145,23 @@ async function writeOpener(env: Env, lead: any, variant: string): Promise<string
   });
   if (!res.ok) throw new Error(`OpenRouter → ${res.status}`);
   const data: any = await res.json();
-  const text = String(data?.choices?.[0]?.message?.content ?? "").trim();
+  const text = cleanOpener(String(data?.choices?.[0]?.message?.content ?? ""));
   if (!text) throw new Error("vacío");
   return text;
+}
+
+/** Quita títulos, etiquetas y segundas versiones que a veces añade el modelo: deja un solo mensaje. */
+export function cleanOpener(raw: string): string {
+  const lines = raw.replace(/\*\*/g, "").split("\n")
+    .filter((l) => !/^\s*#/.test(l) && !/^\s*(variante|opción|option)\b[^:]*:?\s*$/i.test(l.trim()))
+    .map((l) => l.replace(/^\s*(variante|opción)\s*[ab12]?\s*[:\-–]\s*/i, ""));
+  const paras = lines.join("\n").split(/\n\s*\n/).map((p) => p.trim()).filter(Boolean);
+  const out: string[] = [];
+  for (const p of paras) {
+    if (out.length && /^(¡?hola|buen[oa]s)/i.test(p)) break; // empieza otra versión
+    out.push(p);
+  }
+  return out.join("\n\n").replace(/^"|"$/g, "").trim();
 }
 
 export function fallbackOpener(lead: any, variant: string): string {
@@ -168,4 +183,18 @@ export async function markLead(env: Env, phone: string, action: "enviado" | "des
       await env.DB.prepare("INSERT OR IGNORE INTO do_not_contact (key, reason, created_at) VALUES (?, ?, ?)").bind(phone, "descartado en la cola", at).run();
     }
   }
+}
+
+/** Reescribe las aperturas aún no enviadas (de a `max`). Devuelve cuántas quedan pendientes. */
+export async function rewriteOpeners(env: Env, max = 10): Promise<number> {
+  const rows = await env.DB.prepare("SELECT * FROM leads WHERE status = 'hoy' AND opener_v IS NOT 2 LIMIT ?").bind(max).all<any>();
+  for (let i = 0; i < (rows.results ?? []).length; i += 5) {
+    await Promise.all((rows.results ?? []).slice(i, i + 5).map(async (lead: any) => {
+      const variant = lead.variant ?? "A";
+      const opener = await writeOpener(env, lead, variant).catch(() => fallbackOpener(lead, variant));
+      await env.DB.prepare("UPDATE leads SET opener = ?, opener_v = 2 WHERE phone = ?").bind(opener, lead.phone).run();
+    }));
+  }
+  const left = await env.DB.prepare("SELECT COUNT(*) n FROM leads WHERE status = 'hoy' AND opener_v IS NOT 2").first<{ n: number }>();
+  return left?.n ?? 0;
 }

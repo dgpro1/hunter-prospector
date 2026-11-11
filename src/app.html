@@ -424,7 +424,7 @@ function sendHTML(t){
       </div>
       <div class="card"><h3>📆 Hoy<span class="r">${s.sentToday} de ${s.quota}</span></h3>
         <div class="bar" style="height:12px;border-radius:8px;background:#1a140f;position:relative;overflow:hidden;margin-bottom:14px"><i style="position:absolute;inset:0 auto 0 0;width:${pct}%;background:linear-gradient(90deg,#ff6a00,#ffb27a)"></i></div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><label style="color:var(--mut);font-size:13px">Cupo diario <input class="in" id="quota" type="number" min="1" max="60" value="${s.quota}" style="width:80px"></label><button class="btn ghost sm" id="saveq">Guardar</button><button class="btn sm" id="fill">Armar el día</button></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><label style="color:var(--mut);font-size:13px">Cupo diario <input class="in" id="quota" type="number" min="1" max="60" value="${s.quota}" style="width:80px"></label><button class="btn ghost sm" id="saveq">Guardar</button><button class="btn sm" id="fill">Armar el día</button><button class="btn ghost sm" id="rew">Reescribir aperturas</button></div>
         <p style="color:var(--dim);font-size:12px;margin-top:8px">${S.kpis.queued||0} en cola. Toma primero los de confianza alta y mejor rating, y les escribe la apertura (mitad A, mitad B).</p></div>
     </div>
     <div class="card"><h3>🎯 Cazar en Google Maps</h3>
@@ -449,6 +449,7 @@ function bindSend(){
   const busy=(b,t)=>{b.disabled=true;b.dataset.t=b.textContent;b.textContent=t};
   $("#sw").onclick=async()=>{const fd=new FormData();fd.set("on",S.sending.auto?"off":"on");const d=await postForm("/panel/cola/auto",fd);toast(d.message||"Listo");render()};
   $("#saveq").onclick=async()=>{const fd=new FormData();fd.set("quota",$("#quota").value);const d=await postForm("/panel/cola/quota",fd);toast(d.message);render()};
+  $("#rew").onclick=async e=>{busy(e.target,"Reescribiendo…");const d=await postForm("/panel/cola/rewrite",new FormData());toast(d.message);render()};
   $("#fill").onclick=async e=>{busy(e.target,"Redactando aperturas…");const d=await postForm("/panel/cola/fill",new FormData());toast(d.message);render()};
   $("#hunt").onsubmit=async e=>{e.preventDefault();const b=e.target.querySelector("button");busy(b,"Cazando…");const d=await postForm("/panel/cola/hunt",new FormData(e.target));toast(d.message);render()};
   $("#imp").onsubmit=async e=>{e.preventDefault();const b=e.target.querySelector("button");busy(b,"Importando…");const d=await postForm("/panel/cola/import",new FormData(e.target));toast(d.message);render()};

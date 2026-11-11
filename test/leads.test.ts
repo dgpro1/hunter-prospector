@@ -39,3 +39,10 @@ test("día en Bogotá y apertura de respaldo honesta", () => {
   assert.match(t, /Clínica Dental Sonrisa\?/);
   assert.match(t, /Hunter AI/);
 });
+
+import { cleanOpener } from "../src/leads.ts";
+test("deja una sola apertura aunque el modelo mande dos", () => {
+  const raw = "# Variante A (problema-solución)\n\nHola! Soy Daniel de Hunter AI. ¿Les llegan mensajes de noche?\n\n# Variante B (demo directa)\n\nHola! Soy Daniel, ¿te muestro una demo?";
+  assert.equal(cleanOpener(raw), "Hola! Soy Daniel de Hunter AI. ¿Les llegan mensajes de noche?");
+  assert.equal(cleanOpener("¡Hola! Soy Daniel.\n\n¿Quién les contesta el WhatsApp?"), "¡Hola! Soy Daniel.\n\n¿Quién les contesta el WhatsApp?");
+});

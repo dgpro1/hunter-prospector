@@ -6,7 +6,7 @@ import APP from "./app.html";
 import { api } from "./api.ts";
 import { addNote, leadForChat, setStage } from "./store.ts";
 import { renderChat, renderQueue, renderSim } from "./views.ts";
-import { fillToday, getQuota, importLeads, markLead, parseHunt, setQuota, today } from "./leads.ts";
+import { fillToday, rewriteOpeners, getQuota, importLeads, markLead, parseHunt, setQuota, today } from "./leads.ts";
 import { PAISES, runHunt } from "./hunt.ts";
 import { evolutionReady, sendFirst, setSetting, setting, tick } from "./auto.ts";
 import type { Msg } from "./timer.ts";
@@ -255,6 +255,10 @@ async function queue(req: Request, url: URL, env: Env): Promise<Response> {
       return go(h?.status === "error"
         ? `Cacería fallida: ${h.error}`
         : `${niche} en ${city}: ${h?.found ?? 0} negocios, ${h?.mobiles ?? 0} con WhatsApp, ${h?.added ?? 0} nuevos a la cola.${h?.error ? " " + h.error : ""}`);
+    }
+    if (url.pathname === "/panel/cola/rewrite") {
+      const left = await rewriteOpeners(env, 15);
+      return go(left ? `Reescritas 15; faltan ${left}. Pulsa otra vez o espera unos minutos.` : "Aperturas de hoy reescritas.");
     }
     if (url.pathname === "/panel/cola/quota") {
       await setQuota(env, Number((await req.formData()).get("quota")));
