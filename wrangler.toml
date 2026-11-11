@@ -5,7 +5,7 @@ compatibility_date = "2025-04-01"
 [[d1_databases]]
 binding = "DB"
 database_name = "hunter-prospector"
-database_id = "PENDIENTE" # se rellena tras `wrangler d1 create hunter-prospector`
+database_id = "0907f943-58e9-41f1-b14a-1514d73ed953"
 
 [ai]
 binding = "AI"
