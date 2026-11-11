@@ -3,6 +3,9 @@ import { type Env, holdForWorker, messages, moveStage, reply, verifySignature } 
 import { classify, draft, pickBranch } from "./brain.ts";
 import { colorFor, prospectingStart, responseMinutes } from "./timer.ts";
 import { renderPanel } from "./panel.ts";
+import { renderChat, renderSim } from "./views.ts";
+import type { Msg } from "./timer.ts";
+import { humanDuration } from "./timer.ts";
 
 const now = () => new Date().toISOString();
 
@@ -130,7 +133,35 @@ async function panel(req: Request, url: URL, env: Env): Promise<Response> {
         await env.DB.prepare("UPDATE drafts SET status = 'descartado' WHERE id = ?").bind(id).run();
       }
     }
-    return Response.redirect(new URL("/panel", url).toString(), 303);
+    const back = row ? `/panel/chat/${row.conversation_id}` : "/panel";
+    const referer = req.headers.get("Referer") ?? "";
+    return Response.redirect(new URL(referer.includes("/panel/chat/") ? back : "/panel", url).toString(), 303);
+  }
+
+  if (url.pathname === "/panel/simular") {
+    return new Response(renderSim(), { headers: { "Content-Type": "text/html; charset=utf-8" } });
+  }
+  if (url.pathname === "/panel/simular/api" && req.method === "POST") return simulate(req, env);
+
+  const chat = url.pathname.match(/^\/panel\/chat\/([\w-]+)(\/messages\.json|\/reply)?$/);
+  if (chat) {
+    const [, conversationId, sub] = chat;
+    await loadClientId(env);
+    if (sub === "/messages.json") {
+      try {
+        return Response.json(await messages(env, conversationId));
+      } catch (e) {
+        return Response.json({ error: String(e) }, { status: 502 });
+      }
+    }
+    if (sub === "/reply" && req.method === "POST") {
+      const text = String((await req.formData()).get("text") ?? "").trim();
+      if (text) await reply(env, conversationId, text, crypto.randomUUID());
+      return Response.redirect(new URL(`/panel/chat/${conversationId}`, url).toString(), 303);
+    }
+    const prospect = await env.DB.prepare("SELECT * FROM prospects WHERE conversation_id = ?").bind(conversationId).first();
+    const pending = await env.DB.prepare("SELECT * FROM drafts WHERE conversation_id = ? AND status = 'pendiente' ORDER BY created_at DESC").bind(conversationId).first();
+    return new Response(renderChat(conversationId, prospect, pending), { headers: { "Content-Type": "text/html; charset=utf-8" } });
   }
   const drafts = await env.DB.prepare(
     `SELECT d.*, p.contact_name, p.number, p.color, p.response_minutes, p.who_replied
@@ -141,4 +172,25 @@ async function panel(req: Request, url: URL, env: Env): Promise<Response> {
   return new Response(renderPanel(drafts.results as any[], prospects.results as any[], env.CRM_BASE_URL), {
     headers: { "Content-Type": "text/html; charset=utf-8" },
   });
+}
+
+/** Corre el cerebro real (cronómetro, clasificador, rama y redactor) sobre una conversación inventada. */
+async function simulate(req: Request, env: Env): Promise<Response> {
+  const body: any = await req.json().catch(() => null);
+  const history: Msg[] = Array.isArray(body?.messages) ? body.messages.slice(-40) : [];
+  const start = prospectingStart(history);
+  if (!start) return Response.json({ error: "El primer mensaje tiene que ser tuyo." }, { status: 400 });
+  const last = history[history.length - 1];
+  if (last?.role !== "user") return Response.json({ error: "El último mensaje tiene que ser del negocio." }, { status: 400 });
+  const minutes = responseMinutes(start.firstOut, start.firstIn);
+  const color = colorFor(minutes);
+  const isFirstReply = history.filter((m) => m.role === "user").length === 1;
+  const { who, intent } = await classify(env, String(last.content ?? ""));
+  const branch = pickBranch({ isFirstReply, color, who, intent });
+  try {
+    const text = await draft(env, { branch, history, contactName: null, firstOut: start.firstOut, minutes });
+    return Response.json({ color, time: minutes === null ? "sin respuesta" : `respondió en ${humanDuration(minutes)}`, who, intent, branch, draft: text });
+  } catch (e) {
+    return Response.json({ error: `No pude redactar: ${String(e)}` }, { status: 502 });
+  }
 }
