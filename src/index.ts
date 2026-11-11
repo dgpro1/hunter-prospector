@@ -352,7 +352,7 @@ async function demoRoute(req: Request, env: Env, ctx: ExecutionContext, slug: st
   if (chat && req.method === "POST") {
     const body: any = await req.json().catch(() => ({}));
     try {
-      return Response.json({ text: await demoChat(env, d, Array.isArray(body?.messages) ? body.messages : [], Boolean(body?.own)) });
+      return Response.json(await demoChat(env, d, Array.isArray(body?.messages) ? body.messages : [], Boolean(body?.own)));
     } catch {
       return Response.json({ text: "Perdón, tuve un problema técnico. ¿Me lo repites en un momento?" });
     }

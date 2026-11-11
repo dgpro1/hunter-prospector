@@ -3,6 +3,7 @@ import type { Env } from "./crm.ts";
 import { TONE } from "./brain.ts";
 import { addNote } from "./store.ts";
 import { shortName } from "./offers.ts";
+import { compileDemoPrompt, splitAction, type Booking } from "./demoPrompt.ts";
 
 const now = () => new Date().toISOString();
 const DAILY_LIMIT = 60; // mensajes por demo y día: tope de gasto si el link circula
@@ -10,6 +11,7 @@ const DAILY_LIMIT = 60; // mensajes por demo y día: tope de gasto si el link ci
 export type Demo = {
   slug: string; lead: string; business: string; city: string | null; category: string | null;
   knowledge: string | null; services: string | null; hours: string | null; views: number; messages: number;
+  rating: number | null; bookings: number;
 };
 
 function slugify(name: string): string {
@@ -24,11 +26,18 @@ export async function readWebsite(url: string | null): Promise<string | null> {
     const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (compatible; HunterDemo/1.0)" }, redirect: "follow", cf: { cacheTtl: 3600 } } as RequestInit);
     if (!r.ok || !(r.headers.get("content-type") ?? "").includes("html")) return null;
     const html = (await r.text()).slice(0, 400_000);
+    // Datos estructurados (dirección, teléfono, horario, reseñas) cuando la web los publica
+    let ld = "";
+    for (const m of html.matchAll(/<script[^>]+application\/ld\+json[^>]*>([\s\S]*?)<\/script>/gi)) {
+      if (/LocalBusiness|telephone|openingHours|Dentist|MedicalBusiness|address/i.test(m[1])) ld += m[1].replace(/\s+/g, " ").trim() + "\n";
+    }
     const text = html
       .replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<noscript[\s\S]*?<\/noscript>/gi, " ")
       .replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&[a-z#0-9]+;/gi, " ")
       .replace(/\s+/g, " ").trim();
-    return text.length > 80 ? text.slice(0, 6000) : null;
+    const body = text.length > 80 ? text.slice(0, 6000) : "";
+    const out = (ld ? `Datos estructurados: ${ld.slice(0, 1500)}\n` : "") + body;
+    return out.length > 80 ? out : null;
   } catch {
     return null;
   }
@@ -46,8 +55,8 @@ export async function createDemo(env: Env, leadId: string, opts: { services?: st
   }
   const slug = slugify(shortName(lead.name));
   await env.DB.prepare(
-    `INSERT INTO demos (slug, lead, business, city, category, knowledge, services, hours, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).bind(slug, leadId, shortName(lead.name), lead.city, lead.category, knowledge, opts.services ?? null, opts.hours ?? null, now()).run();
+    `INSERT INTO demos (slug, lead, business, city, category, knowledge, services, hours, rating, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(slug, leadId, shortName(lead.name), lead.city, lead.category, knowledge, opts.services ?? null, opts.hours ?? null, lead.rating ?? null, now()).run();
   await addNote(env, leadId, `Demo creada${knowledge ? " (leyó su web)" : ""}: /demo/${slug}`);
   return (await env.DB.prepare("SELECT * FROM demos WHERE slug = ?").bind(slug).first<Demo>())!;
 }
@@ -62,38 +71,29 @@ export async function trackView(env: Env, d: Demo): Promise<void> {
   if (d.views === 0) await addNote(env, d.lead, "🔥 Abrió la demo por primera vez");
 }
 
-function systemPrompt(d: Demo): string {
-  return [
-    `Eres el asistente de WhatsApp de ${d.business}${d.category ? ` (${d.category})` : ""}${d.city ? ` en ${d.city}` : ""}.`,
-    "Atiendes a pacientes o clientes: respondes al instante, con calidez, resuelves dudas y tu objetivo es AGENDAR una cita (pide nombre, servicio y día/hora preferidos y confirma).",
-    "Mensajes cortos como en WhatsApp (1–3 frases), máximo 1 emoji, sin markdown.",
-    TONE,
-    "Usa solo la información del negocio que tienes abajo. Si no sabes un dato (precio exacto, disponibilidad real), dilo con naturalidad y ofrece que el equipo lo confirme; nunca inventes precios.",
-    "Esto es una DEMO: si preguntan quién te hizo o cómo funciona, di que eres un asistente de IA creado por Hunter AI para mostrar cómo se vería en su negocio.",
-    d.services ? `Servicios: ${d.services}` : "",
-    d.hours ? `Horario: ${d.hours}` : "",
-    d.knowledge ? `Información de su web:\n${d.knowledge}` : "No tienes su web: usa conocimiento general del giro sin inventar datos concretos.",
-  ].filter(Boolean).join("\n");
-}
-
-export async function demoChat(env: Env, d: Demo, history: { role: string; content: string }[], own = false): Promise<string> {
+export async function demoChat(env: Env, d: Demo, history: { role: string; content: string }[], own = false): Promise<{ text: string; booking: Booking | null }> {
   const today = new Date().toISOString().slice(0, 10);
   const used = await env.DB.prepare("SELECT COUNT(*) n FROM demo_messages WHERE slug = ? AND day = ?").bind(d.slug, today).first<{ n: number }>();
-  if ((used?.n ?? 0) >= DAILY_LIMIT) return "Por hoy la demo llegó a su límite de mensajes 🙏 Escríbele a Daniel y te la deja activa.";
+  if ((used?.n ?? 0) >= DAILY_LIMIT) return { text: "Por hoy la demo llegó a su límite de mensajes 🙏 Escríbele a Daniel y te la deja activa.", booking: null };
   const msgs = history.slice(-12).map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: String(m.content ?? "").slice(0, 800) }));
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${env.OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: env.OPENROUTER_MODEL, max_tokens: 250, messages: [{ role: "system", content: systemPrompt(d) }, ...msgs] }),
+    body: JSON.stringify({ model: env.OPENROUTER_MODEL, max_tokens: 350, messages: [{ role: "system", content: compileDemoPrompt(d, TONE) }, ...msgs] }),
   });
   if (!res.ok) throw new Error(`OpenRouter → ${res.status}`);
-  const text = String(((await res.json()) as any)?.choices?.[0]?.message?.content ?? "").trim();
+  const { text, booking } = splitAction(String(((await res.json()) as any)?.choices?.[0]?.message?.content ?? ""));
   await env.DB.prepare("INSERT INTO demo_messages (slug, day, created_at) VALUES (?, ?, ?)").bind(d.slug, today, now()).run();
   if (!own) {
     await env.DB.prepare("UPDATE demos SET messages = messages + 1 WHERE slug = ?").bind(d.slug).run();
     if (d.messages === 0) await addNote(env, d.lead, "💬 Empezó a probar la demo");
+    if (booking) {
+      await env.DB.prepare("UPDATE demos SET bookings = bookings + 1 WHERE slug = ?").bind(d.slug).run();
+      const what = [booking.item_or_service, booking.datetime_or_details].filter(Boolean).join(" · ");
+      await addNote(env, d.lead, `📅 Agendó una cita de prueba en la demo${what ? `: ${what}` : ""}`);
+    }
   }
-  return text;
+  return { text, booking };
 }
 
 const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -128,6 +128,8 @@ header b{display:block;font-size:16px}header small{color:#25d366;font-size:12.5p
 form{display:flex;gap:8px;padding:8px 10px calc(8px + env(safe-area-inset-bottom));background:var(--panel)}
 input{flex:1;background:#2a3942;border:0;border-radius:22px;padding:11px 16px;color:var(--fg);font:inherit;outline:none}
 form button{width:44px;height:44px;border-radius:50%;border:0;background:#00a884;color:#fff;font-size:18px;cursor:pointer}
+.bk{align-self:center;max-width:88%;margin:8px 0;padding:10px 14px;border-radius:12px;background:rgba(37,211,102,.1);border:1px solid rgba(37,211,102,.4);display:flex;flex-direction:column;gap:3px;text-align:center;animation:pop .25s ease-out}
+.bk b{color:#25d366}.bk span{font-size:13.5px}.bk small{color:var(--mut);font-size:12px}
 .cta{display:block;text-align:center;font-size:12.5px;color:var(--mut);padding:8px 12px;background:#0d1418;border-top:1px solid #1d272d}
 .cta a{color:var(--a);font-weight:600;text-decoration:none}
 </style></head><body><div class="app">
@@ -143,9 +145,11 @@ function add(role,text){const d=document.createElement("div");d.className="m "+(
 async function send(text){
   text=text.trim();if(!text)return;add("user",text);t.value="";document.getElementById("chips").style.display="none";
   const ty=document.createElement("div");ty.className="typing";ty.innerHTML="<i></i><i></i><i></i>";log.appendChild(ty);log.scrollTop=log.scrollHeight;
-  try{const r=await fetch(location.pathname+"/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messages:hist,own:new URLSearchParams(location.search).has("yo")})});const d=await r.json();ty.remove();add("assistant",d.text||"Perdón, tuve un problema. ¿Me repites?")}
+  try{const r=await fetch(location.pathname+"/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messages:hist,own:new URLSearchParams(location.search).has("yo")})});const d=await r.json();ty.remove();add("assistant",d.text||"Perdón, tuve un problema. ¿Me repites?");if(d.booking)booked(d.booking)}
   catch(e){ty.remove();add("assistant","Perdón, se me fue la señal. ¿Me lo repites?")}
 }
+function booked(b){const c=document.createElement("div");c.className="bk";c.innerHTML="<b>✅ "+esc(b.action_type||"Cita agendada")+"</b><span>"+esc([b.client_name,b.item_or_service,b.datetime_or_details].filter(Boolean).join(" · "))+"</span><small>Así quedaría registrada en tu agenda, sin que nadie del equipo tocara el teléfono.</small>";log.appendChild(c);log.scrollTop=log.scrollHeight}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c])}
 document.getElementById("f").onsubmit=e=>{e.preventDefault();send(t.value)};
 document.querySelectorAll("#chips button").forEach(b=>b.onclick=()=>send(b.textContent));
 const BIZ=${JSON.stringify(d.business).replace(/</g, "\\u003c")};

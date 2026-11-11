@@ -20,3 +20,16 @@ test("claves de nicho sin tildes", () => {
 test("nombres en mayúsculas se suavizan", () => {
   assert.equal(shortName("CIRUJANO DENTISTA LAS 24 HRS GUADALAJARA"), "Cirujano Dentista las 24 Hrs Guadalajara");
 });
+
+import { splitAction, nicheOf, compileDemoPrompt } from "../src/demoPrompt.ts";
+test("demo: separa la etiqueta de cita y detecta giro", () => {
+  const r = splitAction('¡Listo, Ana! Te esperamos el martes 10am 😊\n<<<ACTION_TRIGGERED: {"action_type": "Cita Agendada", "client_name": "Ana", "item_or_service": "Valoración", "datetime_or_details": "martes 10am"}>>>');
+  assert.equal(r.text, "¡Listo, Ana! Te esperamos el martes 10am 😊");
+  assert.equal(r.booking?.client_name, "Ana");
+  assert.equal(splitAction("hola").booking, null);
+  assert.equal(nicheOf("Dentista", "Distrito Sonrisa"), "salud");
+  assert.equal(nicheOf("Taller mecánico", "X"), "auto");
+  const p = compileDemoPrompt({ business: "Distrito Sonrisa", category: "Dentista", city: "Getafe", rating: 4.8, services: null, hours: null, knowledge: null }, "TONO");
+  assert.match(p, /micro-consentimiento/i);
+  assert.ok(!p.includes("null"));
+});
