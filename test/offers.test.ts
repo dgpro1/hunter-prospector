@@ -30,6 +30,7 @@ test("demo: separa la etiqueta de cita y detecta giro", () => {
   assert.equal(nicheOf("Dentista", "Distrito Sonrisa"), "salud");
   assert.equal(nicheOf("Taller mecánico", "X"), "auto");
   const p = compileDemoPrompt({ business: "Distrito Sonrisa", category: "Dentista", city: "Getafe", rating: 4.8, services: null, hours: null, knowledge: null }, "TONO");
-  assert.match(p, /micro-consentimiento/i);
+  assert.match(p, /<agenda>/);
+  assert.match(p, /Dudas médicas/);
   assert.ok(!p.includes("null"));
 });
