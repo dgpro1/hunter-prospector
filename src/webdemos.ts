@@ -3,7 +3,7 @@
 // Si el dueño pulsa "La quiero" y deja su WhatsApp, entra al CRM como ficha con origen "webdemo".
 import type { Env } from "./crm.ts";
 import { classifyRegistrations, fetchRegistrations, FREE_MAIL, type Candidate } from "./ctRegistry.ts";
-import { brandName, buildSite, chooseTemplate, cleanSample, ENGINE_LABEL, pickEngine, writeTexts, type Engine } from "./sitegen.ts";
+import { brandName, buildSite, chooseTemplate, cleanSample, geminiKeys, ENGINE_LABEL, pickEngine, writeTexts, type Engine } from "./sitegen.ts";
 import { setting, setSetting } from "./auto.ts";
 import { SITES } from "./sites/index.ts";
 import { CSS, esc } from "./panel.ts";
@@ -254,7 +254,7 @@ async function renderWebs(env: Env, msg: string | null): Promise<string> {
   const n = (k: string) => by[k]?.n ?? 0;
   const chosen = await setting(env, "webs_ia");
   const engine = pickEngine(env, chosen);
-  const engineForm = `<form method="post" action="/panel/webs/ia" class="row" style="align-items:center;flex-wrap:wrap"><label>Motor de IA <select name="ia">${(Object.keys(ENGINE_LABEL) as Engine[]).map((k) => `<option value="${k}" ${k === engine ? "selected" : ""}>${esc(ENGINE_LABEL[k])}</option>`).join("")}</select></label><button class="ghost">Usar</button></form>${env.GEMINI_API_KEY ? "" : '<p class="muted">Para Gemini gratis: crea una clave en aistudio.google.com/apikey y guárdala en Cloudflare como secreto GEMINI_API_KEY.</p>'}`;
+  const engineForm = `<form method="post" action="/panel/webs/ia" class="row" style="align-items:center;flex-wrap:wrap"><label>Motor de IA <select name="ia">${(Object.keys(ENGINE_LABEL) as Engine[]).map((k) => `<option value="${k}" ${k === engine ? "selected" : ""}>${esc(ENGINE_LABEL[k])}</option>`).join("")}</select></label><button class="ghost">Usar</button></form>${geminiKeys(env).length ? "" : '<p class="muted">Para Gemini gratis: crea una clave en aistudio.google.com/apikey y guárdala en Cloudflare como secreto GEMINI_API_KEY.</p>'}`;
   const lang = (a: string) => (a === "es" ? "ES/EN" : "EN");
   const btn = (slug: string, a: string, label: string, ghost = true) => `<form method="post" action="/panel/webs/${esc(slug)}/${a}" style="display:inline"><button class="${ghost ? "ghost" : ""}" style="padding:4px 12px;font-size:13px">${label}</button></form>`;
   const readyRows = ready.results.map((d) => `<tr><td><b>${esc(brandName(d.name).brand)}</b><br><span class="muted">${esc(d.city ?? "")} · ${esc(SECTOR[d.sector] ?? d.sector)} · ${lang(d.audience)} · ${esc(d.email)}</span></td>

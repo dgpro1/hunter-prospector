@@ -22,6 +22,8 @@ export type Env = {
   SITE_MODEL?: string;            // modelo de OpenRouter para escribir las webs demo (si no, OPENROUTER_MODEL)
   SOCRATA_APP_TOKEN?: string;
   GEMINI_API_KEY?: string;        // clave gratis de Google AI Studio para escribir las webs demo
+  GEMINI_API_KEY_2?: string;
+  GEMINI_API_KEY_3?: string;
   GEMINI_MODEL?: string;     // opcional: más cupo en data.ct.gov
 };
 

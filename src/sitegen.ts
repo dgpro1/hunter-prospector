@@ -248,32 +248,44 @@ export const ENGINE_LABEL: Record<Engine, string> = {
 const CF_MODEL = "@cf/meta/llama-4-scout-17b-16e-instruct";
 
 /** Motor por defecto: el elegido en el panel; si no, Gemini cuando hay clave; si no, el gratis de Cloudflare. */
+export function geminiKeys(env: Env): string[] {
+  return [env.GEMINI_API_KEY, env.GEMINI_API_KEY_2, env.GEMINI_API_KEY_3].flatMap((k) => String(k ?? "").split(",")).map((k) => k.trim()).filter(Boolean);
+}
+
 export function pickEngine(env: Env, chosen: string | null): Engine {
-  if (chosen === "gemini" && env.GEMINI_API_KEY) return "gemini";
+  if (chosen === "gemini" && geminiKeys(env).length) return "gemini";
   if (chosen === "openrouter" && env.OPENROUTER_API_KEY) return "openrouter";
   if (chosen === "cloudflare") return "cloudflare";
-  return env.GEMINI_API_KEY ? "gemini" : "cloudflare";
+  return geminiKeys(env).length ? "gemini" : "cloudflare";
 }
 
 /** Manda un prompt al motor y devuelve el texto de la respuesta. */
 async function ask(env: Env, engine: Engine, system: string, user: string): Promise<{ raw: string; usage: Usage }> {
   if (engine === "gemini") {
     const model = env.GEMINI_MODEL || "gemini-2.5-flash";
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY! },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: system }] },
-        contents: [{ role: "user", parts: [{ text: user }] }],
-        generationConfig: { temperature: 0.6, maxOutputTokens: 32000, responseMimeType: "application/json", thinkingConfig: { thinkingBudget: 0 } },
-      }),
-    });
-    if (!res.ok) throw new Error(`Gemini → ${res.status} ${(await res.text()).slice(0, 200)}`);
-    const data: any = await res.json();
-    const c = data.candidates?.[0];
-    if (c?.finishReason === "MAX_TOKENS") throw new Error("La respuesta de la IA se cortó antes de terminar");
-    const raw = (c?.content?.parts ?? []).map((p: any) => p.text ?? "").join("");
-    return { raw, usage: { prompt_tokens: data.usageMetadata?.promptTokenCount, completion_tokens: data.usageMetadata?.candidatesTokenCount, cost: 0 } };
+    // Varias claves (GEMINI_API_KEY, _2, _3 o separadas por comas): empieza por una al azar y si una da 429 prueba la siguiente
+    const keys = geminiKeys(env);
+    const start = Math.floor(Math.random() * keys.length);
+    let last = "";
+    for (let n = 0; n < keys.length; n++) {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": keys[(start + n) % keys.length] },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: system }] },
+          contents: [{ role: "user", parts: [{ text: user }] }],
+          generationConfig: { temperature: 0.6, maxOutputTokens: 32000, responseMimeType: "application/json", thinkingConfig: { thinkingBudget: 0 } },
+        }),
+      });
+      if (res.status === 429 || res.status === 403) { last = `Gemini → ${res.status} ${(await res.text()).slice(0, 160)}`; continue; }
+      if (!res.ok) throw new Error(`Gemini → ${res.status} ${(await res.text()).slice(0, 200)}`);
+      const data: any = await res.json();
+      const c = data.candidates?.[0];
+      if (c?.finishReason === "MAX_TOKENS") throw new Error("La respuesta de la IA se cortó antes de terminar");
+      const raw = (c?.content?.parts ?? []).map((p: any) => p.text ?? "").join("");
+      return { raw, usage: { prompt_tokens: data.usageMetadata?.promptTokenCount, completion_tokens: data.usageMetadata?.candidatesTokenCount, cost: 0 } };
+    }
+    throw new Error(last || "Gemini sin claves");
   }
   if (engine === "cloudflare") {
     const out: any = await env.AI.run(CF_MODEL as any, {
