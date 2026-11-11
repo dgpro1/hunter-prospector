@@ -6,6 +6,7 @@ import { addNote, setStage, STAGES, STAGE_LABEL, type Stage } from "./store.ts";
 import { PAISES } from "./hunt.ts";
 import { buildOpener, listOffers, saveOffer, suggestOffer } from "./offers.ts";
 import { rewriteOpeners } from "./leads.ts";
+import { createDemo } from "./demo.ts";
 
 const now = () => new Date().toISOString();
 const BOG = "'-5 hours'"; // Bogotá no tiene horario de verano
@@ -41,6 +42,22 @@ export async function api(req: Request, url: URL, env: Env): Promise<Response> {
     catch (e) { return json({ error: String(e) }, 502); }
   }
   if (path === "/lead" && req.method === "POST") return createLead(req, env);
+  const dm = path.match(/^\/lead\/([\w-]+)\/demo$/);
+  if (dm && req.method === "POST") {
+    const b: any = await req.json().catch(() => ({}));
+    try {
+      const d = await createDemo(env, dm[1], { services: b.services || undefined, hours: b.hours || undefined });
+      return json({ demo: d, url: `${url.origin}/demo/${d.slug}`, ...(await leadDetail(env, dm[1])) });
+    } catch (e) { return json({ error: String(e) }, 400); }
+  }
+  if (path === "/settings" && req.method === "POST") {
+    const b: any = await req.json().catch(() => ({}));
+    if ("daniel_wa" in b) {
+      const wa = String(b.daniel_wa ?? "").replace(/\D/g, "");
+      await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('daniel_wa', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(wa).run();
+    }
+    return json({ ok: true });
+  }
   const m = path.match(/^\/lead\/([\w-]+)$/);
   if (m) return req.method === "POST" ? updateLead(req, env, m[1]) : json(await leadDetail(env, m[1]));
   return json({ error: "No encontrado" }, 404);
@@ -115,14 +132,15 @@ async function state(env: Env) {
       lastError: (await setting(env, "last_error")) || null,
     },
     countries: Object.values(PAISES).map((p) => [p.code, p.name]),
+    danielWa: (await setting(env, "daniel_wa")) || "",
   };
 }
 
 async function leads(env: Env) {
   const r = await env.DB.prepare(
-    `SELECT phone, name, city, niche, rating, stage, origin, color, value, next_at, next_text, status, sent_at, replied_at,
-            response_minutes, variant, conversation_id, updated_at
-     FROM leads WHERE status != 'descartado' ORDER BY updated_at DESC LIMIT 1500`,
+    `SELECT l.phone, l.name, l.city, l.niche, l.rating, l.stage, l.origin, l.color, l.value, l.next_at, l.next_text, l.status, l.sent_at,
+            l.replied_at, l.response_minutes, l.variant, l.conversation_id, l.updated_at, d.views AS demo_views, d.messages AS demo_messages
+     FROM leads l LEFT JOIN demos d ON d.lead = l.phone WHERE l.status != 'descartado' ORDER BY l.updated_at DESC LIMIT 1500`,
   ).all();
   return r.results ?? [];
 }
@@ -134,7 +152,8 @@ async function leadDetail(env: Env, id: string) {
   const draft = lead.conversation_id
     ? await env.DB.prepare("SELECT * FROM drafts WHERE conversation_id = ? AND status = 'pendiente' ORDER BY created_at DESC").bind(lead.conversation_id).first()
     : null;
-  return { lead, notes: notes.results ?? [], draft };
+  const demo = await env.DB.prepare("SELECT slug, views, messages, last_view_at, services, hours, knowledge IS NOT NULL AS has_web FROM demos WHERE lead = ?").bind(id).first();
+  return { lead, notes: notes.results ?? [], draft, demo };
 }
 
 async function updateLead(req: Request, env: Env, id: string): Promise<Response> {

@@ -4,6 +4,7 @@ import { classify, draft, pickBranch, TONE } from "./brain.ts";
 import { colorFor, prospectingStart, responseMinutes } from "./timer.ts";
 import APP from "./app.html";
 import { api } from "./api.ts";
+import { demoChat, getDemo, renderDemo, trackView } from "./demo.ts";
 import { addNote, leadForChat, setStage } from "./store.ts";
 import { renderChat, renderQueue, renderSim } from "./views.ts";
 import { fillToday, rewriteOpeners, getQuota, importLeads, markLead, parseHunt, setQuota, today } from "./leads.ts";
@@ -19,6 +20,8 @@ export default {
     const url = new URL(req.url);
     if (url.pathname === "/health") return new Response("ok");
     if (url.pathname === "/webhooks/crm" && req.method === "POST") return webhook(req, env, ctx);
+    const demo = url.pathname.match(/^\/demo\/([a-z0-9-]+)(\/chat)?$/);
+    if (demo) return demoRoute(req, env, ctx, demo[1], Boolean(demo[2]));
     if (url.pathname.startsWith("/panel")) {
       if (!authorized(req, env)) {
         return new Response("Acceso restringido", { status: 401, headers: { "WWW-Authenticate": 'Basic realm="Prospector"' } });
@@ -340,4 +343,22 @@ async function fakeBusiness(req: Request, env: Env): Promise<Response> {
   if (!res.ok) return Response.json({ error: `OpenRouter → ${res.status}: ${(await res.text()).slice(0, 200)}` }, { status: 502 });
   const data: any = await res.json();
   return Response.json({ text: String(data?.choices?.[0]?.message?.content ?? "").trim() });
+}
+
+/** Demo pública: sin contraseña, con tope diario de mensajes. */
+async function demoRoute(req: Request, env: Env, ctx: ExecutionContext, slug: string, chat: boolean): Promise<Response> {
+  const d = await getDemo(env, slug);
+  if (!d) return new Response("Esta demo ya no está disponible.", { status: 404 });
+  if (chat && req.method === "POST") {
+    const body: any = await req.json().catch(() => ({}));
+    try {
+      return Response.json({ text: await demoChat(env, d, Array.isArray(body?.messages) ? body.messages : [], Boolean(body?.own)) });
+    } catch {
+      return Response.json({ text: "Perdón, tuve un problema técnico. ¿Me lo repites en un momento?" });
+    }
+  }
+  const own = new URL(req.url).searchParams.has("yo"); // tus pruebas desde el panel no cuentan como visita
+  if (!own) ctx.waitUntil(trackView(env, d).catch(() => {}));
+  const contact = (await env.DB.prepare("SELECT value FROM settings WHERE key = 'daniel_wa'").first<{ value: string }>())?.value ?? null;
+  return new Response(renderDemo(d, contact), { headers: { "Content-Type": "text/html; charset=utf-8" } });
 }
