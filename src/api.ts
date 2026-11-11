@@ -4,6 +4,8 @@ import { evolutionReady, setting } from "./auto.ts";
 import { getQuota, normalizePhone, today } from "./leads.ts";
 import { addNote, setStage, STAGES, STAGE_LABEL, type Stage } from "./store.ts";
 import { PAISES } from "./hunt.ts";
+import { buildOpener, listOffers, saveOffer, suggestOffer } from "./offers.ts";
+import { rewriteOpeners } from "./leads.ts";
 
 const now = () => new Date().toISOString();
 const BOG = "'-5 hours'"; // Bogotá no tiene horario de verano
@@ -24,6 +26,19 @@ export async function api(req: Request, url: URL, env: Env): Promise<Response> {
        WHERE d.status = 'pendiente' ORDER BY d.created_at DESC LIMIT 50`,
     ).all();
     return json(r.results ?? []);
+  }
+  if (path === "/offers" && req.method === "GET") return json(await listOffers(env));
+  if (path === "/offers" && req.method === "POST") {
+    const b: any = await req.json().catch(() => ({}));
+    if (!String(b.niche ?? "").trim() || !b.result || !b.timeframe || !b.pain) return json({ error: "Completa nicho, resultado, plazo y lo que más odian." }, 400);
+    const o = await saveOffer(env, { ...b, status: "aprobada" });
+    await rewriteOpeners(env, 100);
+    return json({ offer: o, preview: buildOpener({ name: "Clínica Ejemplo" }, o, "A") });
+  }
+  if (path === "/offers/suggest" && req.method === "POST") {
+    const b: any = await req.json().catch(() => ({}));
+    try { return json(await suggestOffer(env, String(b.niche ?? "").trim())); }
+    catch (e) { return json({ error: String(e) }, 502); }
   }
   if (path === "/lead" && req.method === "POST") return createLead(req, env);
   const m = path.match(/^\/lead\/([\w-]+)$/);

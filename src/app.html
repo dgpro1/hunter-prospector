@@ -425,7 +425,11 @@ function sendHTML(t){
       <div class="card"><h3>📆 Hoy<span class="r">${s.sentToday} de ${s.quota}</span></h3>
         <div class="bar" style="height:12px;border-radius:8px;background:#1a140f;position:relative;overflow:hidden;margin-bottom:14px"><i style="position:absolute;inset:0 auto 0 0;width:${pct}%;background:linear-gradient(90deg,#ff6a00,#ffb27a)"></i></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><label style="color:var(--mut);font-size:13px">Cupo diario <input class="in" id="quota" type="number" min="1" max="60" value="${s.quota}" style="width:80px"></label><button class="btn ghost sm" id="saveq">Guardar</button><button class="btn sm" id="fill">Armar el día</button><button class="btn ghost sm" id="rew">Reescribir aperturas</button></div>
-        <p style="color:var(--dim);font-size:12px;margin-top:8px">${S.kpis.queued||0} en cola. Toma primero los de confianza alta y mejor rating, y les escribe la apertura (mitad A, mitad B).</p></div>
+        <p style="color:var(--dim);font-size:12px;margin-top:8px">${S.kpis.queued||0} en cola. Toma primero los de confianza alta y mejor rating y les arma la apertura con la oferta de su nicho (mitad cierre A, mitad B).</p></div>
+    </div>
+    <div class="card"><h3>🧲 Tu oferta por nicho<span class="r" style="color:var(--mut)">Ayudo a <b style="color:var(--fg)">nicho</b> a <b style="color:var(--fg)">resultado</b> en <b style="color:var(--fg)">plazo</b> sin <b style="color:var(--fg)">lo que más odian</b></span></h3>
+      <div class="grid" id="offers"><div class="empty">Cargando ofertas…</div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><input class="in" id="newniche" placeholder="Nuevo nicho (ej. abogados, inmobiliarias)" style="flex:1 1 220px"><button class="btn ghost sm" id="addniche">✨ Sugerir con IA</button></div>
     </div>
     <div class="card"><h3>🎯 Cazar en Google Maps</h3>
       <form id="hunt" style="display:flex;gap:8px;flex-wrap:wrap">
@@ -440,12 +444,49 @@ function sendHTML(t){
     <div class="card"><h3>Los de hoy<span class="r">${t.length} prospecto${t.length===1?"":"s"}</span></h3>
       <div class="grid">${t.map(l=>`
         <div class="lead-row"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b style="cursor:pointer" onclick="openLead('${esc(l.phone)}')">${esc(l.name)}</b><span style="color:var(--mut);font-size:12px">${esc(l.city||"")} · ⭐ ${l.rating??"–"} · variante ${esc(l.variant||"")}</span>${l.status==="enviado"?`<span class="chip" style="border-color:var(--verde);color:var(--verde)">✓ enviado</span>`:""}</div>
-          <textarea class="in" rows="3" data-op="${esc(l.phone)}" ${l.status==="enviado"?"readonly":""}>${esc(l.opener||"")}</textarea>
+          <textarea class="in" rows="4" data-op="${esc(l.phone)}" ${l.status==="enviado"?"readonly":""}>${esc(l.opener||"")}</textarea>
           ${l.status==="enviado"?"":`<div class="actions">${s.ready?`<button class="btn sm" data-act="send" data-id="${esc(l.phone)}">Enviar ahora</button>`:""}<a class="btn ghost sm" target="_blank" data-wa="${esc(l.phone)}" href="https://wa.me/${esc(l.phone)}?text=${encodeURIComponent(l.opener||"")}">Abrir en WhatsApp</a><button class="btn ghost sm" data-act="enviado" data-id="${esc(l.phone)}">Ya lo envié</button><button class="btn ghost sm" data-act="descartado" data-id="${esc(l.phone)}">Saltar</button><button class="btn ghost sm" data-act="no_contactar" data-id="${esc(l.phone)}">No contactar</button></div>`}
         </div>`).join("")||`<div class="empty">Nada para hoy todavía. Caza un nicho y pulsa “Armar el día”.</div>`}</div></div>
   </div>`;
 }
+function offerCard(o,fresh){
+  const id="o-"+Math.random().toString(36).slice(2,8);
+  return `<div class="lead-row" data-offer="${id}" style="${o.status==="sugerida"?"border-color:rgba(242,179,61,.5)":""}">
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b style="font-size:15px">${esc(o.niche)}</b>${o.status==="sugerida"?`<span class="chip" style="border-color:var(--amarillo);color:var(--amarillo)">✨ Sugerida por IA · revísala</span>`:`<span class="chip" style="border-color:var(--verde);color:var(--verde)">✓ Aprobada</span>`}</div>
+    <div class="fields" style="grid-template-columns:repeat(3,1fr)">
+      <label>Resultado<input class="in" name="result" value="${esc(o.result)}" placeholder="tener un 30% más de citas"></label>
+      <label>Plazo<input class="in" name="timeframe" value="${esc(o.timeframe)}" placeholder="60 días"></label>
+      <label>Lo que más odian<input class="in" name="pain" value="${esc(o.pain)}" placeholder="contratar a otra recepcionista"></label>
+      <label class="full">Cierre A · pregunta<input class="in" name="question_a" value="${esc(o.question_a||"")}" placeholder="¿Hoy quién les contesta el WhatsApp cuando están llenos o fuera de horario?"></label>
+      <label class="full">Cierre B · demo<input class="in" name="cta_b" value="${esc(o.cta_b||"")}" placeholder="¿Te muestro en 2 minutos cómo se vería en {negocio}?"></label>
+    </div>
+    <input type="hidden" name="niche" value="${esc(o.niche)}">
+    <div style="background:#0a0807;border:1px dashed var(--line2);border-radius:12px;padding:10px 12px;font-size:13px;white-space:pre-wrap" data-prev></div>
+    <div class="actions"><button class="btn sm" data-save>${o.status==="sugerida"||fresh?"Aprobar y usar":"Guardar"}</button></div></div>`;
+}
+function previewOffer(box){
+  const v=n=>box.querySelector(`[name=${n}]`).value.trim();
+  const short="Clínica Ejemplo";
+  box.querySelector("[data-prev]").textContent=`Hola, ¿hablo con ${short}? Soy Daniel y ayudo a ${v("niche")} a ${v("result").replace(/^a\s+/i,"")||"…"} en ${v("timeframe").replace(/^en\s+/i,"")||"…"} sin ${v("pain").replace(/^sin\s+/i,"")||"…"}.\n\n${v("question_a")||"¿Hoy quién les contesta el WhatsApp cuando están llenos o fuera de horario?"}`;
+}
+function bindOffer(box){
+  box.querySelectorAll("input").forEach(i=>i.oninput=()=>previewOffer(box));previewOffer(box);
+  box.querySelector("[data-save]").onclick=async e=>{
+    const body={};box.querySelectorAll("input[name]").forEach(i=>body[i.name]=i.value);
+    e.target.disabled=true;e.target.textContent="Guardando…";
+    try{await post("/panel/api/offers",body);toast(`Oferta de ${body.niche} guardada. Aperturas de hoy actualizadas.`);render()}catch(err){toast(err.message);e.target.disabled=false;e.target.textContent="Guardar"}
+  };
+}
+async function loadOffers(){
+  const list=await get("/panel/api/offers");const el=$("#offers");if(!el)return;
+  el.innerHTML=list.map(o=>offerCard(o)).join("")||`<div class="empty">Aún no hay ofertas. Escribe un nicho y pide una sugerencia.</div>`;
+  el.querySelectorAll("[data-offer]").forEach(bindOffer);
+  $("#addniche").onclick=async e=>{const niche=$("#newniche").value.trim();if(!niche)return toast("Escribe el nicho");e.target.disabled=true;e.target.textContent="Pensando…";
+    try{const s=await post("/panel/api/offers/suggest",{niche});const w=document.createElement("div");w.innerHTML=offerCard({niche,...s,status:"sugerida"},true);const box=w.firstElementChild;el.prepend(box);bindOffer(box);$("#newniche").value=""}
+    catch(err){toast("No pude sugerir: "+err.message)}finally{e.target.disabled=false;e.target.textContent="✨ Sugerir con IA"}};
+}
 function bindSend(){
+  loadOffers();
   const busy=(b,t)=>{b.disabled=true;b.dataset.t=b.textContent;b.textContent=t};
   $("#sw").onclick=async()=>{const fd=new FormData();fd.set("on",S.sending.auto?"off":"on");const d=await postForm("/panel/cola/auto",fd);toast(d.message||"Listo");render()};
   $("#saveq").onclick=async()=>{const fd=new FormData();fd.set("quota",$("#quota").value);const d=await postForm("/panel/cola/quota",fd);toast(d.message);render()};

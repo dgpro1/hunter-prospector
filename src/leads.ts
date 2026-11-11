@@ -2,6 +2,7 @@
 import type { Env } from "./crm.ts";
 import { addNote, setStage } from "./store.ts";
 import { toneFor } from "./brain.ts";
+import { buildOpener, offerFor, OPENER_V } from "./offers.ts";
 
 export type Lead = {
   phone: string; name: string; niche: string | null; city: string | null; web: string | null;
@@ -111,9 +112,9 @@ export async function fillToday(env: Env): Promise<number> {
   for (let i = 0; i < list.length; i += 5) {
     await Promise.all(list.slice(i, i + 5).map(async (lead: any, j: number) => {
       const variant = (i + j + (used?.n ?? 0)) % 2 === 0 ? "A" : "B";
-      const opener = await writeOpener(env, lead, variant).catch(() => fallbackOpener(lead, variant));
-      await env.DB.prepare("UPDATE leads SET status = 'hoy', day = ?, variant = ?, opener = ?, opener_v = 2 WHERE phone = ?")
-        .bind(day, variant, opener, lead.phone).run();
+      const opener = await composeOpener(env, lead, variant);
+      await env.DB.prepare("UPDATE leads SET status = 'hoy', day = ?, variant = ?, opener = ?, opener_v = ? WHERE phone = ?")
+        .bind(day, variant, opener, OPENER_V, lead.phone).run();
     }));
   }
   return list.length;
@@ -124,7 +125,16 @@ const VARIANT: Record<string, string> = {
   B: "Variante B (demo directa): preséntate en una línea y ofrece mostrarle gratis cómo un asistente contestaría a SUS clientes por WhatsApp en segundos. Termina con una pregunta de sí o no.",
 };
 
-async function writeOpener(env: Env, lead: any, variant: string): Promise<string> {
+/** Apertura con la fórmula de la oferta del nicho (sin IA: siempre igual de clara). */
+export async function composeOpener(env: Env, lead: any, variant: string): Promise<string> {
+  try {
+    return buildOpener(lead, await offerFor(env, lead.niche), variant);
+  } catch {
+    return fallbackOpener(lead, variant);
+  }
+}
+
+export async function writeOpener(env: Env, lead: any, variant: string): Promise<string> {
   const system = [
     "Eres Daniel, de Hunter AI. Escribes el PRIMER mensaje de WhatsApp a un negocio que encontraste en Google Maps.",
     "Honesto: di que eres Daniel de Hunter AI y que los encontraste en Google; nunca te hagas pasar por cliente.",
@@ -187,14 +197,14 @@ export async function markLead(env: Env, phone: string, action: "enviado" | "des
 
 /** Reescribe las aperturas aún no enviadas (de a `max`). Devuelve cuántas quedan pendientes. */
 export async function rewriteOpeners(env: Env, max = 10): Promise<number> {
-  const rows = await env.DB.prepare("SELECT * FROM leads WHERE status = 'hoy' AND opener_v IS NOT 2 LIMIT ?").bind(max).all<any>();
+  const rows = await env.DB.prepare("SELECT * FROM leads WHERE status = 'hoy' AND (opener_v IS NULL OR opener_v < ?) LIMIT ?").bind(OPENER_V, max).all<any>();
   for (let i = 0; i < (rows.results ?? []).length; i += 5) {
     await Promise.all((rows.results ?? []).slice(i, i + 5).map(async (lead: any) => {
       const variant = lead.variant ?? "A";
-      const opener = await writeOpener(env, lead, variant).catch(() => fallbackOpener(lead, variant));
-      await env.DB.prepare("UPDATE leads SET opener = ?, opener_v = 2 WHERE phone = ?").bind(opener, lead.phone).run();
+      const opener = await composeOpener(env, lead, variant);
+      await env.DB.prepare("UPDATE leads SET opener = ?, opener_v = ? WHERE phone = ?").bind(opener, OPENER_V, lead.phone).run();
     }));
   }
-  const left = await env.DB.prepare("SELECT COUNT(*) n FROM leads WHERE status = 'hoy' AND opener_v IS NOT 2").first<{ n: number }>();
+  const left = await env.DB.prepare("SELECT COUNT(*) n FROM leads WHERE status = 'hoy' AND (opener_v IS NULL OR opener_v < ?)").bind(OPENER_V).first<{ n: number }>();
   return left?.n ?? 0;
 }

@@ -1,5 +1,6 @@
 // Envío automático del primer mensaje por Evolution (Canal 1), con interruptor, cupo y horario local.
 import type { Env } from "./crm.ts";
+import { OPENER_V } from "./offers.ts";
 import { fillToday, markLead, rewriteOpeners, today } from "./leads.ts";
 
 /** Zona horaria del negocio según el prefijo del número (MX, ES, EE. UU., CO). */
@@ -42,8 +43,8 @@ export async function sendFirst(env: Env, phone: string, text: string): Promise<
 /** Cada 10 min: si está encendido y toca, manda UN mensaje y programa el siguiente con una pausa al azar. */
 export async function tick(env: Env, date = new Date()): Promise<string> {
   // Aperturas viejas por reescribir (cambio de tono): 10 por vuelta, antes de enviar nada.
-  const pendingRewrite = await env.DB.prepare("SELECT 1 FROM leads WHERE status = 'hoy' AND opener_v IS NOT 2 LIMIT 1").first();
-  if (pendingRewrite) return `reescribiendo, faltan ${await rewriteOpeners(env, 10)}`;
+  const pendingRewrite = await env.DB.prepare("SELECT 1 FROM leads WHERE status = 'hoy' AND (opener_v IS NULL OR opener_v < ?) LIMIT 1").bind(OPENER_V).first();
+  if (pendingRewrite) return `reescribiendo, faltan ${await rewriteOpeners(env, 40)}`;
   if ((await setting(env, "auto")) !== "on") return "apagado";
   if (!evolutionReady(env)) return "sin Evolution";
   const day = today(date);
