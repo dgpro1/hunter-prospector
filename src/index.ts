@@ -7,6 +7,7 @@ import { api } from "./api.ts";
 import { notify } from "./alerts.ts";
 import { lineLabel } from "./lines.ts";
 import { accessCheck } from "./access.ts";
+import { sendTest } from "./auto.ts";
 import { authorized, login, loginPage, pwaAsset } from "./pwa.ts";
 import { demoChat, getDemo, renderDemo, trackView } from "./demo.ts";
 import { addNote, leadForChat, setStage } from "./store.ts";
@@ -61,6 +62,7 @@ export default {
     })().catch((e) => console.error("hunt", e)));
     ctx.waitUntil(tick(env).then((r) => console.log("tick", r)).catch((e) => console.error("tick", e)));
     ctx.waitUntil(accessCheck(env).catch((e) => console.error("access", e)));
+    ctx.waitUntil(sendTest(env).then((r) => r && console.log("send_test", r)).catch((e) => console.error("send_test", e)));
   },
 };
 

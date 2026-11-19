@@ -108,3 +108,28 @@ export async function tick(env: Env, date = new Date()): Promise<string> {
   await setSetting(env, "next_send_at", new Date(date.getTime() + gapMin * 60000).toISOString());
   return `enviado ${lead.phone}`;
 }
+
+/**
+ * One-off test send: the "send_test" setting names one lead's phone. The cron sends that
+ * lead's opener once, clears the setting before sending, and leaves the outcome in "send_test_result".
+ */
+export async function sendTest(env: Env): Promise<string | null> {
+  const phone = await setting(env, "send_test");
+  if (!phone) return null;
+  await setSetting(env, "send_test", "");
+  const lead = await env.DB.prepare("SELECT phone, opener FROM leads WHERE phone = ?").bind(phone).first<any>();
+  let result: string;
+  if (!lead) result = `sin lead ${phone}`;
+  else {
+    try {
+      await sendFirst(env, lead.phone, lead.opener);
+      await markLead(env, lead.phone, "enviado");
+      const row = await env.DB.prepare("SELECT conversation_id, line FROM leads WHERE phone = ?").bind(phone).first<any>();
+      result = `enviado ${phone} conv=${row?.conversation_id ?? ""} line=${row?.line ?? ""}`;
+    } catch (e) {
+      result = `error ${e instanceof CrmError ? `${e.status} ${e.code} ` : ""}${sendErrorText(e)}`;
+    }
+  }
+  await setSetting(env, "send_test_result", `${new Date().toISOString()} ${result}`);
+  return result;
+}
