@@ -8,6 +8,7 @@ import { notify } from "./alerts.ts";
 import { lineLabel } from "./lines.ts";
 import { accessCheck } from "./access.ts";
 import { sendTest } from "./auto.ts";
+import { watchLines } from "./linewatch.ts";
 import { authorized, login, loginPage, pwaAsset } from "./pwa.ts";
 import { demoChat, getDemo, renderDemo, trackView } from "./demo.ts";
 import { addNote, leadForChat, setStage } from "./store.ts";
@@ -47,6 +48,8 @@ export default {
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     // Canal 3: una web demo por vuelta (cada web en su propia invocación, con su propio presupuesto de CPU)
     if (event.cron === WEBS_CRON) {
+      // Cada 3 min: foto de las líneas del CRM y aviso si alguna se cae.
+      ctx.waitUntil(watchLines(env).then((s) => s.length && console.log("lines", s)).catch((e) => console.error("lines", e)));
       ctx.waitUntil(sendTest(env).then((r) => r && console.log("send_test", r)).catch((e) => console.error("send_test", e)));
       ctx.waitUntil((async () => {
         const order = await runOrder(env);

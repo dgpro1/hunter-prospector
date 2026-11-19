@@ -543,7 +543,8 @@ async function loadSendLines(){
   const d=await fetch("/panel/api/send-lines",{headers:{"X-App":"1"}}).then(r=>r.json()).catch(()=>({lines:[]}));
   sel.innerHTML=`<option value="rotar">Turnarse entre mis líneas</option>`+(d.lines||[]).map(l=>`<option value="${esc(l.id)}" ${l.connected?"":"disabled"}>${esc(l.label)}${l.number?" · …"+esc(l.number.slice(-4)):""}${l.connected?"":" (desconectada)"}</option>`).join("");
   sel.value=d.chosen||"rotar";
-  $("#slinemsg").textContent=d.error?d.error:`${(d.lines||[]).filter(l=>l.connected).length} conectada(s) en el CRM`;
+  const ls=d.lines||[],ch=ls.find(l=>l.id===d.chosen);
+  $("#slinemsg").innerHTML=d.error?esc(d.error):(ls.length?ls.map(l=>`${l.connected?"🟢":"🔴"} ${esc(l.label)}${l.number?" …"+esc(l.number.slice(-4)):""}`).join(" · "):"🔴 Sin líneas QR en el CRM")+(ch&&!ch.connected?` <b style="color:#ff6a00">· La línea elegida está caída: los envíos esperan</b>`:"")+(!ls.some(l=>l.connected)&&ls.length?` <b style="color:#ff6a00">· Envíos en pausa</b>`:"");
   sel.onchange=async()=>{await post("/panel/api/send-lines",{line:sel.value});toast("Línea guardada")};
 }
 function sendHTML(t){

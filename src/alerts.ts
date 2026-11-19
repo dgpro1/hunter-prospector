@@ -52,3 +52,11 @@ export async function listAlerts(env: Env) {
 export async function markSeen(env: Env): Promise<void> {
   await env.DB.prepare("UPDATE alerts SET seen = 1 WHERE seen = 0").run();
 }
+
+/** Aviso que no es de un prospecto (p. ej. una línea que se cayó): campana, push y Telegram. */
+export async function notifySystem(env: Env, kind: string, text: string): Promise<void> {
+  await env.DB.prepare("INSERT INTO alerts (id, lead, kind, text, created_at) VALUES (?, '', ?, ?, ?)")
+    .bind(crypto.randomUUID(), kind, text, new Date().toISOString()).run();
+  await pushAll(env).catch((e) => console.error("push", e));
+  await telegram(env, `${text}\n\n${env.PUBLIC_URL}/panel#envios`).catch((e) => console.error("telegram", e));
+}

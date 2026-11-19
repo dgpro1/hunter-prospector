@@ -67,6 +67,8 @@ export function sendErrorText(e: unknown): string {
   if (e instanceof CrmError && e.status === 404 && /conversations\/start/.test(e.message) && !/line/i.test(e.message)) {
     return "El CRM todavía no tiene el endpoint para escribir primero (POST /conversations/start). Mientras, usa “Abrir en WhatsApp”.";
   }
+  if (e instanceof CrmError && e.code === "no_line") return "No hay ninguna línea QR conectada en el CRM. Los envíos esperan hasta que reconectes una.";
+  if (e instanceof CrmError && e.code === "line_off") return "La línea elegida está desconectada en el CRM. Los envíos esperan; no se usa otro número.";
   if (e instanceof CrmError && e.status === 404) return "La línea elegida ya no existe en el CRM. Elige otra en Envíos.";
   if (e instanceof CrmError && e.status === 403) return "La integración del CRM no tiene permiso (necesita inbox.reply y channels.read).";
   return String(e instanceof Error ? e.message : e);
@@ -98,6 +100,12 @@ export async function tick(env: Env, date = new Date()): Promise<string> {
       await markLead(env, lead.phone, "descartado");
       await addNote(env, lead.phone, "Sin WhatsApp (lo comprobó el CRM antes de enviar)");
       return `sin WhatsApp ${lead.phone}`;
+    }
+    if (e instanceof CrmError && ["no_line", "line_off"].includes(e.code)) {
+      // La línea elegida (o todas) está caída: se espera sin apagar el envío ni gastar el lead.
+      // El vigilante de líneas ya avisó; en cuanto vuelva, sigue solo. Nunca se cambia de número.
+      await setSetting(env, "last_error", `${date.toISOString()} ${sendErrorText(e)}`);
+      return "línea caída, en pausa";
     }
     await setSetting(env, "last_error", `${date.toISOString()} ${sendErrorText(e)}`);
     // Si falla, se apaga solo para no insistir con un número caído o bloqueado.
