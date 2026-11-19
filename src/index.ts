@@ -24,6 +24,7 @@ const WEBS_CRON = "*/3 * * * *";
 export default {
   async fetch(req: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(req.url);
+    if (url.pathname === "/") return Response.redirect(new URL("/panel", url).toString(), 302);
     if (url.pathname === "/health") return new Response("ok");
     if (url.pathname === "/webhooks/crm" && req.method === "POST") return webhook(req, env, ctx);
     const demo = url.pathname.match(/^\/demo\/([a-z0-9-]+)(\/chat)?$/);
