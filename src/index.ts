@@ -13,7 +13,7 @@ import { renderChat, renderQueue, renderSim } from "./views.ts";
 import { fillToday, rewriteOpeners, getQuota, importLeads, markLead, parseHunt, setQuota, today } from "./leads.ts";
 import { PAISES, runHunt } from "./hunt.ts";
 import { generateOne, runOrder, panelRoute as websPanel, publicRoute as webPublic } from "./webdemos.ts";
-import { evolutionReady, sendFirst, setSetting, setting, tick } from "./auto.ts";
+import { sendErrorText, sendFirst, sendReady, setSetting, setting, tick } from "./auto.ts";
 import type { Msg } from "./timer.ts";
 import { humanDuration } from "./timer.ts";
 
@@ -301,7 +301,7 @@ async function queue(req: Request, url: URL, env: Env): Promise<Response> {
     }
     if (url.pathname === "/panel/cola/auto") {
       const on = String((await req.formData()).get("on")) === "on";
-      if (on && !evolutionReady(env)) return go("Primero conecta Evolution.");
+      if (on && !sendReady(env)) return go("Primero conecta el CRM (CRM_API_TOKEN).");
       await setSetting(env, "auto", on ? "on" : "off");
       if (on) await setSetting(env, "last_error", "");
       return go(on ? "Envío automático encendido." : "Envío automático apagado.");
@@ -316,7 +316,7 @@ async function queue(req: Request, url: URL, env: Env): Promise<Response> {
         try {
           await sendFirst(env, m[1], opener);
         } catch (e) {
-          return go(`No se pudo enviar: ${String(e)}`);
+          return go(`No se pudo enviar: ${sendErrorText(e)}`);
         }
         await markLead(env, m[1], "enviado", opener);
         return go("Enviado.");
@@ -332,7 +332,7 @@ async function queue(req: Request, url: URL, env: Env): Promise<Response> {
     counts: Object.fromEntries((counts.results ?? []).map((r) => [r.status, r.n])),
     quota: await getQuota(env),
     auto: (await setting(env, "auto")) === "on",
-    ready: evolutionReady(env),
+    ready: sendReady(env),
     lastError: (await setting(env, "last_error")) || null,
     nextAt: (await setting(env, "next_send_at")) || null,
     today: list.results ?? [],

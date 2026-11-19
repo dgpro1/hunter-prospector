@@ -1,5 +1,7 @@
-// Envío automático del primer mensaje por Evolution (Canal 1), con interruptor, cupo y horario local.
-import type { Env } from "./crm.ts";
+// Envío automático del primer mensaje por el CRM Hunter AI (Canal 1), con interruptor, cupo, línea y horario local.
+import { CrmError, crmLines, startChat, type Env, type Line } from "./crm.ts";
+import { lineLabel } from "./lines.ts";
+import { addNote } from "./store.ts";
 import { OPENER_V } from "./offers.ts";
 import { fillToday, markLead, rewriteOpeners, today } from "./leads.ts";
 
@@ -28,16 +30,45 @@ export async function setSetting(env: Env, key: string, value: string): Promise<
   await env.DB.prepare("INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(key, value).run();
 }
 
-export const evolutionReady = (env: Env) => Boolean(env.EVOLUTION_URL && env.EVOLUTION_INSTANCE && env.EVOLUTION_API_KEY);
+/** El envío sale por el CRM: basta con el token de la integración. Nada de Evolution aquí. */
+export const sendReady = (env: Env) => Boolean(env.CRM_API_TOKEN);
 
-/** Envía un texto desde el número QR. El CRM lo ve como mensaje tuyo desde el teléfono y abre el chat. */
+/**
+ * Línea por la que sale el próximo mensaje. Ajuste "send_line": el id de una línea fija,
+ * o vacío / "rotar" para turnarse entre todas las líneas QR conectadas.
+ */
+export async function pickLine(env: Env): Promise<Line> {
+  const lines = (await crmLines(env)).filter((l) => l.connected);
+  if (!lines.length) throw new CrmError(0, "no_line", "No hay ninguna línea QR conectada en el CRM");
+  const chosen = (await setting(env, "send_line")) || "rotar";
+  if (chosen !== "rotar") {
+    const line = lines.find((l) => l.id === chosen);
+    if (!line) throw new CrmError(0, "line_off", "La línea elegida no está conectada en el CRM");
+    return line;
+  }
+  const cursor = Number((await setting(env, "line_cursor")) || 0);
+  await setSetting(env, "line_cursor", String(cursor + 1));
+  return lines[cursor % lines.length];
+}
+
+/** Escribe primero por el CRM y deja la ficha unida a la conversación y a la línea. */
 export async function sendFirst(env: Env, phone: string, text: string): Promise<void> {
-  const res = await fetch(`${env.EVOLUTION_URL.replace(/\/$/, "")}/message/sendText/${encodeURIComponent(env.EVOLUTION_INSTANCE)}`, {
-    method: "POST",
-    headers: { apikey: env.EVOLUTION_API_KEY, "Content-Type": "application/json" },
-    body: JSON.stringify({ number: phone, text, delay: 1500, linkPreview: false }),
-  });
-  if (!res.ok) throw new Error(`Evolution → ${res.status} ${(await res.text()).slice(0, 200)}`);
+  const line = await pickLine(env);
+  const { conversationId, lineNumber } = await startChat(env, line.id, phone, text, `apertura-${phone}`);
+  const num = lineNumber ?? line.number;
+  await env.DB.prepare("UPDATE leads SET conversation_id = COALESCE(?, conversation_id), line = COALESCE(line, ?) WHERE phone = ?")
+    .bind(conversationId || null, num, phone).run();
+  const label = num ? await lineLabel(env, num) : line.label;
+  await addNote(env, phone, `📞 Primer mensaje por ${label}${num ? ` (…${num.slice(-4)})` : ""}, vía CRM`);
+}
+
+/** Traduce un error de envío a algo que se entienda en el panel. */
+export function sendErrorText(e: unknown): string {
+  if (e instanceof CrmError && e.status === 404 && /conversations\/start/.test(e.message)) {
+    return "El CRM todavía no tiene el endpoint para escribir primero (POST /conversations/start). Mientras, usa “Abrir en WhatsApp”.";
+  }
+  if (e instanceof CrmError && e.status === 403) return "La integración del CRM no tiene permiso (necesita inbox.reply y channels.read).";
+  return String(e instanceof Error ? e.message : e);
 }
 
 /** Cada 10 min: si está encendido y toca, manda UN mensaje y programa el siguiente con una pausa al azar. */
@@ -46,7 +77,7 @@ export async function tick(env: Env, date = new Date()): Promise<string> {
   const pendingRewrite = await env.DB.prepare("SELECT 1 FROM leads WHERE status = 'hoy' AND (opener_v IS NULL OR opener_v < ?) LIMIT 1").bind(OPENER_V).first();
   if (pendingRewrite) return `reescribiendo, faltan ${await rewriteOpeners(env, 40)}`;
   if ((await setting(env, "auto")) !== "on") return "apagado";
-  if (!evolutionReady(env)) return "sin Evolution";
+  if (!sendReady(env)) return "sin CRM";
   const day = today(date);
   if ((await setting(env, "filled_day")) !== day) {
     await fillToday(env);
@@ -61,7 +92,13 @@ export async function tick(env: Env, date = new Date()): Promise<string> {
     await sendFirst(env, lead.phone, lead.opener);
     await markLead(env, lead.phone, "enviado");
   } catch (e) {
-    await setSetting(env, "last_error", `${date.toISOString()} ${String(e)}`);
+    if (e instanceof CrmError && e.code === "not_on_whatsapp") {
+      // El número no tiene WhatsApp: se salta sin gastar cupo ni apagar el envío.
+      await markLead(env, lead.phone, "descartado");
+      await addNote(env, lead.phone, "Sin WhatsApp (lo comprobó el CRM antes de enviar)");
+      return `sin WhatsApp ${lead.phone}`;
+    }
+    await setSetting(env, "last_error", `${date.toISOString()} ${sendErrorText(e)}`);
     // Si falla, se apaga solo para no insistir con un número caído o bloqueado.
     await setSetting(env, "auto", "off");
     return "error";

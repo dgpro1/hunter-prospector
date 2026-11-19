@@ -1,6 +1,7 @@
 // API JSON del panel (la app de una sola página la consume).
 import type { Env } from "./crm.ts";
-import { evolutionReady, setting } from "./auto.ts";
+import { sendErrorText, sendReady, setSetting, setting } from "./auto.ts";
+import { crmLines } from "./crm.ts";
 import { getQuota, normalizePhone, today } from "./leads.ts";
 import { addNote, setStage, STAGES, STAGE_LABEL, type Stage } from "./store.ts";
 import { PAISES } from "./hunt.ts";
@@ -19,6 +20,15 @@ export async function api(req: Request, url: URL, env: Env): Promise<Response> {
   const path = url.pathname.replace(/^\/panel\/api/, "");
   if (path === "/state") return json(await state(env));
   if (path === "/lines" && req.method === "POST") { const b: any = await req.json(); await renameLine(env, String(b.number ?? ""), String(b.label ?? "")); return json(await listLines(env)); }
+  if (path === "/send-lines" && req.method === "GET") {
+    try { return json({ lines: await crmLines(env), chosen: (await setting(env, "send_line")) || "rotar" }); }
+    catch (e) { return json({ lines: [], chosen: "rotar", error: sendErrorText(e) }); }
+  }
+  if (path === "/send-lines" && req.method === "POST") {
+    const b: any = await req.json().catch(() => ({}));
+    await setSetting(env, "send_line", String(b.line || "rotar").slice(0, 64));
+    return json({ ok: true });
+  }
   if (path === "/alerts" && req.method === "GET") return json(await listAlerts(env));
   if (path === "/alerts/seen" && req.method === "POST") { await markSeen(env); return json({ ok: true }); }
   if (path === "/push/key") return json({ key: vapidPublic(env) });
@@ -141,7 +151,8 @@ async function state(env: Env) {
       sentToday: sentToday?.n ?? 0,
       quota: await getQuota(env),
       auto: (await setting(env, "auto")) === "on",
-      ready: evolutionReady(env),
+      ready: sendReady(env),
+      line: (await setting(env, "send_line")) || "rotar",
       nextAt: (await setting(env, "next_send_at")) || null,
       lastError: (await setting(env, "last_error")) || null,
     },

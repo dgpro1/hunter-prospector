@@ -143,7 +143,7 @@ ${s.flash ? `<p class="card">${esc(s.flash)}</p>` : ""}
 <section class="card">
   <div class="head"><b>Envío automático</b>
     <span class="chip"><i class="dot" style="background:${s.auto ? COLORS.verde : COLORS.gris}"></i>${s.auto ? "Encendido" : "Apagado"}</span></div>
-  ${s.ready ? "" : '<p class="muted">Falta conectar Evolution (EVOLUTION_URL, EVOLUTION_INSTANCE y EVOLUTION_API_KEY en Cloudflare). Mientras, usa "Abrir en WhatsApp".</p>'}
+  ${s.ready ? "" : '<p class="muted">Falta conectar el CRM (secreto CRM_API_TOKEN en Cloudflare). Mientras, usa "Abrir en WhatsApp".</p>'}
   ${s.lastError ? `<p class="muted">Último error: ${esc(s.lastError)}</p>` : ""}
   <p class="muted" style="margin:0">Lunes a sábado, 9:00–19:00 hora del negocio, un mensaje cada 12–25 min. Si un envío falla, se apaga solo.${s.nextAt ? " Próximo envío desde: " + esc(new Date(s.nextAt).toLocaleString("es-CO", { timeZone: "America/Bogota" })) + "." : ""}</p>
   <form method="post" action="/panel/cola/auto" class="row"><button name="on" value="${s.auto ? "off" : "on"}" ${!s.ready && !s.auto ? "disabled" : ""}>${s.auto ? "Apagar" : "Encender"}</button></form>

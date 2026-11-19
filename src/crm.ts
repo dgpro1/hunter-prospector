@@ -13,9 +13,6 @@ export type Env = {
   OPENROUTER_MODEL: string;
   CLASSIFY_MODEL: string;
   PANEL_PASSWORD: string;
-  EVOLUTION_URL: string;
-  EVOLUTION_INSTANCE: string;
-  EVOLUTION_API_KEY: string;
   TELEGRAM_BOT_TOKEN?: string;
   VAPID_JWK?: string;
   PUBLIC_URL: string;
@@ -27,13 +24,76 @@ export type Env = {
   GEMINI_MODEL?: string;     // opcional: más cupo en data.ct.gov
 };
 
+/** Error del CRM con su código HTTP y, si lo trae, el código de error (ej. "not_on_whatsapp"). */
+export class CrmError extends Error {
+  status: number;
+  code: string;
+  constructor(status: number, code: string, message: string) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+}
+
 async function call(env: Env, path: string, init: RequestInit = {}): Promise<any> {
+  await ensureClientId(env);
   const res = await fetch(`${env.CRM_BASE_URL}/api/v1/clients/${env.CRM_CLIENT_ID}${path}`, {
     ...init,
     headers: { Authorization: `Bearer ${env.CRM_API_TOKEN}`, "Content-Type": "application/json", ...(init.headers ?? {}) },
   });
-  if (!res.ok) throw new Error(`CRM ${init.method ?? "GET"} ${path} → ${res.status}`);
+  if (!res.ok) {
+    const body: any = await res.json().catch(() => ({}));
+    const detail = body?.detail;
+    const code = typeof detail === "object" && detail ? String(detail.code ?? "") : "";
+    const text = typeof detail === "string" ? detail : String(detail?.message ?? "");
+    throw new CrmError(res.status, code, `CRM ${init.method ?? "GET"} ${path} → ${res.status}${text ? ` ${text.slice(0, 160)}` : ""}`);
+  }
   return res.json();
+}
+
+/**
+ * UUID del cliente de prospección: el de wrangler.toml, el aprendido del primer webhook
+ * o, si el token solo ve un cliente, ese.
+ */
+export async function ensureClientId(env: Env): Promise<void> {
+  if (env.CRM_CLIENT_ID) return;
+  const row = await env.DB.prepare("SELECT value FROM settings WHERE key = 'crm_client_id'").first<{ value: string }>();
+  if (row?.value) { env.CRM_CLIENT_ID = row.value; return; }
+  const res = await fetch(`${env.CRM_BASE_URL}/api/v1/clients`, { headers: { Authorization: `Bearer ${env.CRM_API_TOKEN}` } });
+  const list: any[] = res.ok ? ((await res.json()) as any)?.data ?? [] : [];
+  if (list.length !== 1) throw new CrmError(0, "no_client", "Falta el cliente del CRM (CRM_CLIENT_ID)");
+  env.CRM_CLIENT_ID = String(list[0].id);
+  await env.DB.prepare("INSERT OR IGNORE INTO settings (key, value) VALUES ('crm_client_id', ?)").bind(env.CRM_CLIENT_ID).run();
+}
+
+/** Una línea de WhatsApp QR del cliente en el CRM. */
+export type Line = { id: string; label: string; number: string | null; connected: boolean };
+
+/** Tus líneas QR conectadas al cliente de prospección (permiso channels.read). */
+export async function crmLines(env: Env): Promise<Line[]> {
+  const page = await call(env, "/channels");
+  return (page.data ?? [])
+    .filter((c: any) => c.type === "whatsapp_qr")
+    .map((c: any) => {
+      const number = String(c.phone_number ?? "").replace(/\D/g, "") || null;
+      return { id: String(c.id), label: String(c.label ?? number ?? "Línea"), number, connected: Boolean(c.connected) };
+    });
+}
+
+/**
+ * Escribe primero a un número desde una línea QR, por el CRM. El CRM comprueba que el número
+ * tenga WhatsApp, abre la conversación en modo humano y devuelve su id.
+ * Endpoint propuesto al CRM: POST /api/v1/clients/{client}/conversations/start.
+ */
+export async function startChat(
+  env: Env, channelId: string, phone: string, content: string, idempotencyKey: string,
+): Promise<{ conversationId: string; lineNumber: string | null }> {
+  const r = await call(env, "/conversations/start", {
+    method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey },
+    body: JSON.stringify({ channel_id: channelId, phone, content }),
+  });
+  return { conversationId: String(r.id ?? r.conversation_id), lineNumber: String(r.line_number ?? "").replace(/\D/g, "") || null };
 }
 
 export async function messages(env: Env, conversationId: string): Promise<Msg[]> {

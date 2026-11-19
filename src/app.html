@@ -252,7 +252,7 @@ function nav(){
   const link=([k,l])=>k==="webs"?`<a href="/panel/webs">${ICON[k]}<span>${l}</span></a>`:k==="sim"?`<a href="/panel/simular">${ICON[k]}<span>${l}</span></a>`:`<a href="#${k}" class="${view===k?"on":""}">${ICON[k]}<span>${l}</span>${badge(k)}</a>`;
   $("#nav").innerHTML=VIEWS.map(link).join("");
   $("#tabs").innerHTML=VIEWS.map(link).join("");
-  if(S){const s=S.sending;$("#sidefoot").innerHTML=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">${dot(s.auto?"verde":"gris")}<b>Envío ${s.auto?"encendido":"apagado"}</b></div>Hoy ${s.sentToday} de ${s.quota} enviados${s.ready?"":"<br><span style='color:var(--amarillo)'>Falta conectar Evolution</span>"}`}
+  if(S){const s=S.sending;$("#sidefoot").innerHTML=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">${dot(s.auto?"verde":"gris")}<b>Envío ${s.auto?"encendido":"apagado"}</b></div>Hoy ${s.sentToday} de ${s.quota} enviados${s.ready?"":"<br><span style='color:var(--amarillo)'>Falta conectar el CRM</span>"}`}
 }
 window.addEventListener("hashchange",()=>{const h=location.hash.slice(1);if(h.startsWith("lead=")){openLead(decodeURIComponent(h.slice(5)));return}view=h||"inicio";render()});
 
@@ -335,7 +335,7 @@ function homeHTML(){
           ${k.overdue?`<a class="chip warn" href="#pipeline">⏰ ${k.overdue} seguimiento${k.overdue>1?"s":""} vencido${k.overdue>1?"s":""}</a>`:""}
           <span class="chip">📥 ${k.queued||0} en cola</span>
           ${s.nextAt&&s.auto?`<span class="chip">⏭ Próximo envío ${when(s.nextAt)}</span>`:""}
-          ${!s.ready?`<span class="chip warn">🔌 Falta conectar Evolution</span>`:""}
+          ${!s.ready?`<span class="chip warn">🔌 Falta conectar el CRM</span>`:""}
         </div></div>
     </div>
     <div class="grid kpis">
@@ -538,6 +538,14 @@ async function newLead(){
 }
 
 /* ---------- ENVÍOS ---------- */
+async function loadSendLines(){
+  const sel=$("#sline");if(!sel)return;
+  const d=await fetch("/panel/api/send-lines",{headers:{"X-App":"1"}}).then(r=>r.json()).catch(()=>({lines:[]}));
+  sel.innerHTML=`<option value="rotar">Turnarse entre mis líneas</option>`+(d.lines||[]).map(l=>`<option value="${esc(l.id)}" ${l.connected?"":"disabled"}>${esc(l.label)}${l.number?" · …"+esc(l.number.slice(-4)):""}${l.connected?"":" (desconectada)"}</option>`).join("");
+  sel.value=d.chosen||"rotar";
+  $("#slinemsg").textContent=d.error?d.error:`${(d.lines||[]).filter(l=>l.connected).length} conectada(s) en el CRM`;
+  sel.onchange=async()=>{await post("/panel/api/send-lines",{line:sel.value});toast("Línea guardada")};
+}
 function sendHTML(t){
   const s=S.sending,pct=s.quota?Math.min(100,100*s.sentToday/s.quota):0;
   return `<div class="top"><div><h1>Envíos</h1><p>Caza negocios, arma el día y deja que el worker escriba solo.</p></div></div>
@@ -546,7 +554,8 @@ function sendHTML(t){
       <div class="card"><h3>🤖 Envío automático</h3>
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px"><button class="switch ${s.auto?"on":""}" id="sw" ${!s.ready&&!s.auto?"disabled":""} aria-label="Encender o apagar"></button><b>${s.auto?"Encendido":"Apagado"}</b>${s.auto&&s.nextAt?`<span class="chip">⏭ ${when(s.nextAt)}</span>`:""}</div>
         <p style="color:var(--mut);font-size:13px">Lunes a sábado, 9:00–19:00 en la hora del negocio. Un mensaje cada 12–25 min. Si un envío falla, se apaga solo.</p>
-        ${!s.ready?`<p style="color:var(--amarillo);font-size:13px;margin-top:8px">🔌 Falta conectar Evolution (EVOLUTION_URL, EVOLUTION_INSTANCE y EVOLUTION_API_KEY en Cloudflare). Mientras, usa “Abrir en WhatsApp”.</p>`:""}
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px"><label style="color:var(--mut);font-size:13px">📞 Sale por</label><select class="in" id="sline" style="flex:0 1 240px"><option value="rotar">Turnarse entre mis líneas</option></select><span id="slinemsg" style="color:var(--dim);font-size:12px"></span></div>
+        ${!s.ready?`<p style="color:var(--amarillo);font-size:13px;margin-top:8px">🔌 Falta conectar el CRM (secreto CRM_API_TOKEN en Cloudflare). Mientras, usa “Abrir en WhatsApp”.</p>`:""}
         ${s.lastError?`<p style="color:var(--rojo);font-size:12px;margin-top:8px">Último error: ${esc(s.lastError)}</p>`:""}
       </div>
       <div class="card"><h3>📆 Hoy<span class="r">${s.sentToday} de ${s.quota}</span></h3>
@@ -620,6 +629,7 @@ function bindSend(){
   $("#tg").onclick=async()=>{const d=await post("/panel/api/telegram",{}).catch(e=>({error:e.message}));if(d.ok){toast("Telegram conectado ✅ Te mandé un mensaje de prueba");await loadAlerts();render()}else toast(d.error||"No se pudo")};
   $("#savewa").onclick=async()=>{await post("/panel/api/settings",{daniel_wa:$("#dwa").value});toast("Guardado: las demos llevan tu WhatsApp")};
   const busy=(b,t)=>{b.disabled=true;b.dataset.t=b.textContent;b.textContent=t};
+  loadSendLines();
   $("#sw").onclick=async()=>{const fd=new FormData();fd.set("on",S.sending.auto?"off":"on");const d=await postForm("/panel/cola/auto",fd);toast(d.message||"Listo");render()};
   $("#saveq").onclick=async()=>{const fd=new FormData();fd.set("quota",$("#quota").value);const d=await postForm("/panel/cola/quota",fd);toast(d.message);render()};
   $("#rew").onclick=async e=>{busy(e.target,"Reescribiendo…");const d=await postForm("/panel/cola/rewrite",new FormData());toast(d.message);render()};
