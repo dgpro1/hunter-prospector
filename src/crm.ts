@@ -43,9 +43,10 @@ async function call(env: Env, path: string, init: RequestInit = {}): Promise<any
   });
   if (!res.ok) {
     const body: any = await res.json().catch(() => ({}));
+    // La API v1 responde {title, status, detail, code?}: code trae el motivo (ej. "not_on_whatsapp").
     const detail = body?.detail;
-    const code = typeof detail === "object" && detail ? String(detail.code ?? "") : "";
-    const text = typeof detail === "string" ? detail : String(detail?.message ?? "");
+    const code = String(body?.code ?? "");
+    const text = typeof detail === "string" ? detail : "";
     throw new CrmError(res.status, code, `CRM ${init.method ?? "GET"} ${path} → ${res.status}${text ? ` ${text.slice(0, 160)}` : ""}`);
   }
   return res.json();
@@ -83,7 +84,7 @@ export async function crmLines(env: Env): Promise<Line[]> {
 /**
  * Escribe primero a un número desde una línea QR, por el CRM. El CRM comprueba que el número
  * tenga WhatsApp, abre la conversación en modo humano y devuelve su id.
- * Endpoint propuesto al CRM: POST /api/v1/clients/{client}/conversations/start.
+ * Endpoint del CRM: POST /api/v1/clients/{client}/conversations/start (rama claude/project-thread-s1v1ch de hunterai).
  */
 export async function startChat(
   env: Env, channelId: string, phone: string, content: string, idempotencyKey: string,
@@ -91,7 +92,7 @@ export async function startChat(
   const r = await call(env, "/conversations/start", {
     method: "POST",
     headers: { "Idempotency-Key": idempotencyKey },
-    body: JSON.stringify({ channel_id: channelId, phone, content }),
+    body: JSON.stringify({ channel_id: channelId, phone, content, mode: "human" }),
   });
   return { conversationId: String(r.id ?? r.conversation_id), lineNumber: String(r.line_number ?? "").replace(/\D/g, "") || null };
 }

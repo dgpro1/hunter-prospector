@@ -11,3 +11,8 @@ test("si el CRM no tiene el endpoint de escribir primero, lo dice claro", () => 
 test("permiso faltante en la integración", () => {
   assert.match(sendErrorText(new CrmError(403, "", "CRM GET /channels → 403")), /channels\.read/);
 });
+
+test("el código del CRM llega al worker", () => {
+  const e = new CrmError(422, "not_on_whatsapp", "CRM POST /conversations/start → 422");
+  assert.equal(e.code, "not_on_whatsapp");
+});

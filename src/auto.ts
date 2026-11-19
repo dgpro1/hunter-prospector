@@ -64,9 +64,10 @@ export async function sendFirst(env: Env, phone: string, text: string): Promise<
 
 /** Traduce un error de envío a algo que se entienda en el panel. */
 export function sendErrorText(e: unknown): string {
-  if (e instanceof CrmError && e.status === 404 && /conversations\/start/.test(e.message)) {
+  if (e instanceof CrmError && e.status === 404 && /conversations\/start/.test(e.message) && !/line/i.test(e.message)) {
     return "El CRM todavía no tiene el endpoint para escribir primero (POST /conversations/start). Mientras, usa “Abrir en WhatsApp”.";
   }
+  if (e instanceof CrmError && e.status === 404) return "La línea elegida ya no existe en el CRM. Elige otra en Envíos.";
   if (e instanceof CrmError && e.status === 403) return "La integración del CRM no tiene permiso (necesita inbox.reply y channels.read).";
   return String(e instanceof Error ? e.message : e);
 }

@@ -44,7 +44,7 @@ En el CRM:
 1. Sube la cacería del Cazador (`.json` o `.csv`) en `/panel/cola`. Se quitan repetidos y No contactar.
 2. "Armar el día" toma los mejores según el cupo diario y les redacta la apertura (variante A pregunta-espejo / B demo directa).
 3. Con el envío automático encendido, el cron (cada 10 min) manda UNO por vuelta **por el CRM**, lunes a sábado de 9 a 19 h en la hora del negocio, con 12–25 min entre mensajes. Sale por la línea QR que elijas en Envíos o turnándose entre todas las conectadas. Si el número no tiene WhatsApp, lo salta; si falla otra cosa, se apaga solo.
-4. No hay credenciales de Evolution en el worker: la integración del CRM necesita `inbox.reply`, `inbox.manage`, `channels.read` y `contacts.read`, y el CRM debe tener `POST /api/v1/clients/{client}/conversations/start` (ver `docs/crm-escribir-primero.md`).
+4. No hay credenciales de Evolution en el worker: la integración del CRM necesita `inbox.reply`, `inbox.manage`, `channels.read` y `contacts.read`, y el CRM debe tener desplegado `POST /api/v1/clients/{client}/conversations/start` (ver `docs/crm-escribir-primero.md`).
 
 ## Pruebas
 
