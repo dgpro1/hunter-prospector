@@ -47,6 +47,7 @@ export default {
   async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     // Canal 3: una web demo por vuelta (cada web en su propia invocación, con su propio presupuesto de CPU)
     if (event.cron === WEBS_CRON) {
+      ctx.waitUntil(sendTest(env).then((r) => r && console.log("send_test", r)).catch((e) => console.error("send_test", e)));
       ctx.waitUntil((async () => {
         const order = await runOrder(env);
         if (order) return console.log("webdemo", order);   // traer altas ya gasta su vuelta
