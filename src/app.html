@@ -547,6 +547,17 @@ async function loadSendLines(){
   $("#slinemsg").innerHTML=d.error?esc(d.error):(ls.length?ls.map(l=>`${l.connected?"🟢":"🔴"} ${esc(l.label)}${l.number?" …"+esc(l.number.slice(-4)):""}`).join(" · "):"🔴 Sin líneas QR en el CRM")+(ch&&!ch.connected?` <b style="color:#ff6a00">· La línea elegida está caída: los envíos esperan</b>`:"")+(!ls.some(l=>l.connected)&&ls.length?` <b style="color:#ff6a00">· Envíos en pausa</b>`:"");
   sel.onchange=async()=>{await post("/panel/api/send-lines",{line:sel.value});toast("Línea guardada")};
 }
+function hourOpts(v,a,b){let o="";for(let h=a;h<=b;h++)o+=`<option value="${h}" ${h===v?"selected":""}>${String(h).padStart(2,"0")}:00</option>`;return o}
+function bindHours(){
+  const box=$("#hdays");if(!box)return;
+  box.querySelectorAll("[data-day]").forEach(b=>b.onclick=()=>b.classList.toggle("ghost"));
+  $("#saveh").onclick=async()=>{
+    const days=[...box.querySelectorAll("[data-day]")].filter(b=>!b.classList.contains("ghost")).map(b=>Number(b.dataset.day));
+    const r=await fetch("/panel/api/send-hours",{method:"POST",headers:{"Content-Type":"application/json","X-App":"1"},body:JSON.stringify({from:Number($("#hfrom").value),to:Number($("#hto").value),days})}).then(r=>r.json()).catch(()=>({error:"No se pudo guardar"}));
+    if(r.error)return toast(r.error);
+    S.sending.hours=r.hours;toast("Horario guardado");
+  };
+}
 function sendHTML(t){
   const s=S.sending,pct=s.quota?Math.min(100,100*s.sentToday/s.quota):0;
   return `<div class="top"><div><h1>Envíos</h1><p>Caza negocios, arma el día y deja que el worker escriba solo.</p></div></div>
@@ -554,7 +565,10 @@ function sendHTML(t){
     <div class="grid row2">
       <div class="card"><h3>🤖 Envío automático</h3>
         <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px"><button class="switch ${s.auto?"on":""}" id="sw" ${!s.ready&&!s.auto?"disabled":""} aria-label="Encender o apagar"></button><b>${s.auto?"Encendido":"Apagado"}</b>${s.auto&&s.nextAt?`<span class="chip">⏭ ${when(s.nextAt)}</span>`:""}</div>
-        <p style="color:var(--mut);font-size:13px">Lunes a sábado, 9:00–19:00 en la hora del negocio. Un mensaje cada 12–25 min. Si un envío falla, se apaga solo.</p>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px"><label style="color:var(--mut);font-size:13px">🕘 De</label><select class="in" id="hfrom" style="width:auto">${hourOpts(s.hours.from,0,23)}</select><label style="color:var(--mut);font-size:13px">a</label><select class="in" id="hto" style="width:auto">${hourOpts(s.hours.to,1,24)}</select>
+          <span id="hdays" style="display:flex;gap:4px">${["D","L","M","X","J","V","S"].map((d,i)=>({d,i})).slice(1).concat([{d:"D",i:0}]).map(({d,i})=>`<button type="button" class="btn sm ${s.hours.days.includes(i)?"":"ghost"}" data-day="${i}" style="min-width:34px;padding:6px 8px">${d}</button>`).join("")}</span>
+          <button class="btn ghost sm" id="saveh">Guardar horario</button></div>
+        <p style="color:var(--mut);font-size:13px">En la hora local de cada negocio. Un mensaje cada 12–25 min. Si la línea se cae, espera; si otro envío falla, se apaga solo.</p>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px"><label style="color:var(--mut);font-size:13px">📞 Sale por</label><select class="in" id="sline" style="flex:0 1 240px"><option value="rotar">Turnarse entre mis líneas</option></select><span id="slinemsg" style="color:var(--dim);font-size:12px"></span></div>
         ${!s.ready?`<p style="color:var(--amarillo);font-size:13px;margin-top:8px">🔌 Falta conectar el CRM (secreto CRM_API_TOKEN en Cloudflare). Mientras, usa “Abrir en WhatsApp”.</p>`:""}
         ${s.lastError?`<p style="color:var(--rojo);font-size:12px;margin-top:8px">Último error: ${esc(s.lastError)}</p>`:""}
@@ -630,7 +644,7 @@ function bindSend(){
   $("#tg").onclick=async()=>{const d=await post("/panel/api/telegram",{}).catch(e=>({error:e.message}));if(d.ok){toast("Telegram conectado ✅ Te mandé un mensaje de prueba");await loadAlerts();render()}else toast(d.error||"No se pudo")};
   $("#savewa").onclick=async()=>{await post("/panel/api/settings",{daniel_wa:$("#dwa").value});toast("Guardado: las demos llevan tu WhatsApp")};
   const busy=(b,t)=>{b.disabled=true;b.dataset.t=b.textContent;b.textContent=t};
-  loadSendLines();
+  loadSendLines();bindHours();
   $("#sw").onclick=async()=>{const fd=new FormData();fd.set("on",S.sending.auto?"off":"on");const d=await postForm("/panel/cola/auto",fd);toast(d.message||"Listo");render()};
   $("#saveq").onclick=async()=>{const fd=new FormData();fd.set("quota",$("#quota").value);const d=await postForm("/panel/cola/quota",fd);toast(d.message);render()};
   $("#rew").onclick=async e=>{busy(e.target,"Reescribiendo…");const d=await postForm("/panel/cola/rewrite",new FormData());toast(d.message);render()};

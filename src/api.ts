@@ -1,6 +1,6 @@
 // API JSON del panel (la app de una sola página la consume).
 import type { Env } from "./crm.ts";
-import { sendErrorText, sendReady, setSetting, setting } from "./auto.ts";
+import { cleanHours, getHours, sendErrorText, sendReady, setSetting, setting } from "./auto.ts";
 import { crmLines } from "./crm.ts";
 import { getQuota, normalizePhone, today } from "./leads.ts";
 import { addNote, setStage, STAGES, STAGE_LABEL, type Stage } from "./store.ts";
@@ -28,6 +28,12 @@ export async function api(req: Request, url: URL, env: Env): Promise<Response> {
     const b: any = await req.json().catch(() => ({}));
     await setSetting(env, "send_line", String(b.line || "rotar").slice(0, 64));
     return json({ ok: true });
+  }
+  if (path === "/send-hours" && req.method === "POST") {
+    const h = cleanHours(await req.json().catch(() => null));
+    if (!h) return json({ error: "Revisa el horario: la hora de inicio va antes que la de fin y elige al menos un día" }, 400);
+    await setSetting(env, "send_hours", JSON.stringify(h));
+    return json({ ok: true, hours: h });
   }
   if (path === "/alerts" && req.method === "GET") return json(await listAlerts(env));
   if (path === "/alerts/seen" && req.method === "POST") { await markSeen(env); return json({ ok: true }); }
@@ -153,6 +159,7 @@ async function state(env: Env) {
       auto: (await setting(env, "auto")) === "on",
       ready: sendReady(env),
       line: (await setting(env, "send_line")) || "rotar",
+      hours: await getHours(env),
       nextAt: (await setting(env, "next_send_at")) || null,
       lastError: (await setting(env, "last_error")) || null,
     },

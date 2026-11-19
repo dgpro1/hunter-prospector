@@ -46,3 +46,14 @@ test("deja una sola apertura aunque el modelo mande dos", () => {
   assert.equal(cleanOpener(raw), "Hola! Soy Daniel de Hunter AI. ¿Les llegan mensajes de noche?");
   assert.equal(cleanOpener("¡Hola! Soy Daniel.\n\n¿Quién les contesta el WhatsApp?"), "¡Hola! Soy Daniel.\n\n¿Quién les contesta el WhatsApp?");
 });
+
+test("the sending hours can be moved from the panel", async () => {
+  const { cleanHours } = await import("../src/auto.ts");
+  const early = cleanHours({ from: 7, to: 19, days: [1, 2, 3, 4, 5, 6] })!;
+  // 7:30 in Guadalajara (UTC-6) on a Wednesday
+  assert.equal(inWindow("523326633455", new Date("2026-11-11T13:30:00Z")), false);
+  assert.equal(inWindow("523326633455", new Date("2026-11-11T13:30:00Z"), early), true);
+  assert.equal(inWindow("523326633455", new Date("2026-11-15T16:00:00Z"), { from: 9, to: 19, days: [0] }), true);
+  assert.equal(cleanHours({ from: 19, to: 9, days: [1] }), null);
+  assert.equal(cleanHours({ from: 9, to: 19, days: [] }), null);
+});

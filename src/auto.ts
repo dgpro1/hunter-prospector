@@ -14,11 +14,28 @@ export function zoneFor(phone: string): string {
 }
 
 /** ¿Es buena hora para escribirle? Lunes a sábado, de 9:00 a 18:59 en su hora local. */
-export function inWindow(phone: string, date = new Date()): boolean {
+/** Horario de envío en la hora local del negocio: de "from" a "to" (horas 0–24) los días "days" (0 = domingo). */
+export type Hours = { from: number; to: number; days: number[] };
+export const DEFAULT_HOURS: Hours = { from: 9, to: 19, days: [1, 2, 3, 4, 5, 6] };
+const WEEKDAY = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** Valida un horario que llega del panel; null si no tiene sentido. */
+export function cleanHours(raw: any): Hours | null {
+  const from = Number(raw?.from), to = Number(raw?.to);
+  const days = [...new Set((Array.isArray(raw?.days) ? raw.days : []).map(Number))].filter((d) => Number.isInteger(d) && d >= 0 && d <= 6).sort() as number[];
+  if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to > 24 || from >= to || !days.length) return null;
+  return { from, to, days };
+}
+
+export async function getHours(env: Env): Promise<Hours> {
+  try { return cleanHours(JSON.parse((await setting(env, "send_hours")) || "null")) ?? DEFAULT_HOURS; } catch { return DEFAULT_HOURS; }
+}
+
+export function inWindow(phone: string, date = new Date(), hours: Hours = DEFAULT_HOURS): boolean {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: zoneFor(phone), weekday: "short", hour: "numeric", hourCycle: "h23" }).formatToParts(date);
   const hour = Number(parts.find((p) => p.type === "hour")?.value);
-  const day = parts.find((p) => p.type === "weekday")?.value;
-  return day !== "Sun" && hour >= 9 && hour < 19;
+  const day = WEEKDAY.indexOf(parts.find((p) => p.type === "weekday")?.value ?? "");
+  return hours.days.includes(day) && hour >= hours.from && hour < hours.to;
 }
 
 export async function setting(env: Env, key: string): Promise<string | null> {
@@ -89,7 +106,8 @@ export async function tick(env: Env, date = new Date()): Promise<string> {
   const next = await setting(env, "next_send_at");
   if (next && Date.parse(next) > date.getTime()) return "esperando pausa";
   const pending = await env.DB.prepare("SELECT * FROM leads WHERE status = 'hoy' AND day = ? ORDER BY rowid").bind(day).all<any>();
-  const lead = (pending.results ?? []).find((l: any) => inWindow(l.phone, date));
+  const hours = await getHours(env);
+  const lead = (pending.results ?? []).find((l: any) => inWindow(l.phone, date, hours));
   if (!lead) return "nadie en horario";
   try {
     await sendFirst(env, lead.phone, lead.opener);
