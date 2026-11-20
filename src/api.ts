@@ -46,7 +46,8 @@ export async function api(req: Request, url: URL, env: Env): Promise<Response> {
   if (path === "/telegram" && req.method === "POST") return json(await linkTelegram(env));
   if (path === "/leads") return json(await leads(env));
   if (path === "/today") {
-    const r = await env.DB.prepare("SELECT * FROM leads WHERE day = ? ORDER BY status = 'enviado', rowid").bind(today()).all();
+    // Los descartados (sin WhatsApp, saltados) no se muestran: ya no van a salir.
+    const r = await env.DB.prepare("SELECT * FROM leads WHERE day = ? AND status IN ('hoy','enviado') ORDER BY status = 'enviado', rowid").bind(today()).all();
     return json(r.results ?? []);
   }
   if (path === "/drafts") {
