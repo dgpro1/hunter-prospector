@@ -1,6 +1,6 @@
 // Hunter Prospector · worker v1 (Canal 2: tú escribes desde el anuncio, el worker toma el relevo).
 import { type Env, holdForWorker, messages, moveStage, reply, verifySignature } from "./crm.ts";
-import { classify, draft, pickBranch, TONE } from "./brain.ts";
+import { analyze, classify, draft, pickBranch, TONE } from "./brain.ts";
 import { colorFor, prospectingStart, responseMinutes } from "./timer.ts";
 import APP from "./app.html";
 import { api } from "./api.ts";
@@ -51,6 +51,7 @@ export default {
       // Cada 3 min: foto de las líneas del CRM y aviso si alguna se cae.
       ctx.waitUntil(watchLines(env).then((s) => s.length && console.log("lines", s)).catch((e) => console.error("lines", e)));
       ctx.waitUntil(sendTest(env).then((r) => r && console.log("send_test", r)).catch((e) => console.error("send_test", e)));
+      ctx.waitUntil(reanalyze(env).catch((e) => console.error("reanalyze", e)));
       ctx.waitUntil((async () => {
         const order = await runOrder(env);
         if (order) return console.log("webdemo", order);   // traer altas ya gasta su vuelta
@@ -106,6 +107,22 @@ async function loadClientId(env: Env): Promise<void> {
   if (row?.value) env.CRM_CLIENT_ID = row.value;
 }
 
+/**
+ * Vuelve a leer una conversación y rehace su análisis y su sugerencia: ajuste "reanalyze" con el id
+ * de la conversación (lo consume el cron de 3 min).
+ */
+async function reanalyze(env: Env): Promise<void> {
+  const conv = await setting(env, "reanalyze");
+  if (!conv) return;
+  await setSetting(env, "reanalyze", "");
+  const p = await env.DB.prepare("SELECT * FROM prospects WHERE conversation_id = ?").bind(conv).first<any>();
+  const history = await messages(env, conv);
+  const last = [...history].reverse().find((m) => m.role === "user" && (m.kind ?? "message") === "message");
+  if (!last) return;
+  await handleReply(env, { conversation_id: conv, content: last.content, contact_id: p?.contact_id ?? null, contact_name: p?.contact_name ?? null, created_at: last.created_at });
+  await setSetting(env, "reanalyze_result", `${new Date().toISOString()} ${conv}`);
+}
+
 async function handleReply(env: Env, data: any): Promise<void> {
   const conversationId: string = data.conversation_id;
   const blocked = await env.DB.prepare("SELECT 1 FROM do_not_contact WHERE key = ?").bind(data.contact_id ?? conversationId).first();
@@ -117,13 +134,32 @@ async function handleReply(env: Env, data: any): Promise<void> {
   if (!start && !known) return; // chat normal (te escribió el negocio primero): no es prospección
 
   const firstOut = known?.first_out_at ?? start?.firstOut ?? null;
-  const firstIn = known?.first_in_at ?? start?.firstIn ?? null;
-  const isFirstReply = !known?.first_in_at;
-  const minutes = responseMinutes(firstOut, firstIn);
-  const color = colorFor(minutes);
-  const { who, intent } = await classify(env, String(data.content ?? ""));
-  const branch = pickBranch({ isFirstReply, color, who, intent });
+  const content = String(data.content ?? "");
+  // El mensaje que llegó, dentro del historial del CRM (el último del negocio con ese texto).
+  const inbound = [...history].reverse().find((m) => m.role === "user" && (m.kind ?? "message") === "message" && m.content === content)
+    ?? [...history].reverse().find((m) => m.role === "user");
+  const inAt: string = inbound?.created_at ?? data.created_at ?? now();
+  const lastOurs = [...history].reverse().find((m) => m.role !== "user" && (m.kind ?? "message") === "message" && m.created_at <= inAt);
+  const secs = lastOurs ? (Date.parse(inAt) - Date.parse(lastOurs.created_at)) / 1000 : null;
+  const analysis = await analyze(env, history, content, secs);
+  const lead0 = await leadForChat(env, data);
+  if (analysis.auto) {
+    await env.DB.prepare("INSERT OR IGNORE INTO auto_messages (conversation_id, created_at, content) VALUES (?, ?, ?)").bind(conversationId, inAt, content.slice(0, 500)).run();
+  }
+  const autoRows = await env.DB.prepare("SELECT created_at FROM auto_messages WHERE conversation_id = ?").bind(conversationId).all<{ created_at: string }>();
+  const autoTimes = (autoRows.results ?? []).map((r) => r.created_at);
+  // La primera respuesta de una PERSONA (los automáticos no cuentan).
+  const firstHuman = history.find((m) => m.role === "user" && (m.kind ?? "message") === "message" && !autoTimes.includes(m.created_at))?.created_at ?? null;
+  const firstIn = known?.first_in_at ?? (analysis.auto ? null : firstHuman ?? inAt);
+  const isFirstReply = !analysis.auto && !known?.first_in_at;
+  const minutes = firstIn ? responseMinutes(firstOut, firstIn) : null;
+  const color = firstIn ? colorFor(minutes) : null;
+  const { who, intent } = analysis;
+  const branch = analysis.auto ? "automatico" : pickBranch({ isFirstReply, color: color ?? "verde", who, intent });
 
+  if (analysis.auto) {
+    await addNote(env, lead0, `🤖 Respuesta automática de WhatsApp Business: “${content.slice(0, 140)}”. Todavía no contesta una persona.`);
+  }
   if (!known) await holdForWorker(env, conversationId);
 
   await env.DB.prepare(
@@ -141,7 +177,7 @@ async function handleReply(env: Env, data: any): Promise<void> {
   ).run();
 
   // CRM: la respuesta queda en la ficha del prospecto.
-  const lead = await leadForChat(env, data);
+  const lead = lead0;
   if (data.number) {
     const label = await lineLabel(env, String(data.number));
     const num = String(data.number).replace(/\D/g, "");
@@ -160,7 +196,7 @@ async function handleReply(env: Env, data: any): Promise<void> {
     await notify(env, lead, "respondio", `respondió${minutes !== null ? ` en ${humanDuration(minutes)}` : ""}: “${String(data.content ?? "").slice(0, 120)}”`);
   }
   if (intent === "no_interesa") await setStage(env, lead, "perdido", "dijo que no le interesa");
-  else {
+  else if (!analysis.auto) {
     const cur = await env.DB.prepare("SELECT stage FROM leads WHERE phone = ?").bind(lead).first<{ stage: string }>();
     if (cur && ["nuevo", "contactado"].includes(cur.stage)) await setStage(env, lead, "respondio");
   }
@@ -173,7 +209,7 @@ async function handleReply(env: Env, data: any): Promise<void> {
     await moveStage(env, conversationId, "respondio").catch(() => {});
   }
 
-  const text = await draft(env, { branch, history, contactName: data.contact_name ?? null, firstOut, minutes, phone: lead });
+  const text = await draft(env, { branch, history, contactName: data.contact_name ?? null, firstOut, minutes, phone: lead, autoTimes, summary: analysis.summary });
   if (!text) return;
   // Un borrador pendiente por chat: el nuevo reemplaza al anterior.
   await env.DB.prepare("UPDATE drafts SET status = 'descartado' WHERE conversation_id = ? AND status = 'pendiente'").bind(conversationId).run();

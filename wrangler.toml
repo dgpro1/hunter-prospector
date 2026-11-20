@@ -23,7 +23,7 @@ CRM_CLIENT_ID = ""
 # Modelo de OpenRouter para redactar los mensajes
 OPENROUTER_MODEL = "anthropic/claude-sonnet-4.5"
 # Modelo de Workers AI para clasificar
-CLASSIFY_MODEL = "@cf/meta/llama-3.1-8b-instruct"
+CLASSIFY_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
 # Opcional: JSON con los ids de etapa del CRM, ej. {"respondio":"uuid","perdido":"uuid"}
 CRM_STAGES = "{}"
 
