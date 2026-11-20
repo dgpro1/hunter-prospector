@@ -1,5 +1,5 @@
 // Envío automático del primer mensaje por el CRM Hunter AI (Canal 1), con interruptor, cupo, línea y horario local.
-import { CrmError, crmLines, startChat, type Env, type Line } from "./crm.ts";
+import { CrmError, crmLines, messages, startChat, type Env, type Line } from "./crm.ts";
 import { lineLabel } from "./lines.ts";
 import { addNote } from "./store.ts";
 import { OPENER_V } from "./offers.ts";
@@ -158,4 +158,25 @@ export async function sendTest(env: Env): Promise<string | null> {
   }
   await setSetting(env, "send_test_result", `${new Date().toISOString()} ${result}`);
   return result;
+}
+
+/**
+ * Revisión pedida a mano (ajuste "verify_sent" = "pedido"): para cada lead enviado por el CRM mira
+ * cómo quedó su primer mensaje (delivery_status de WhatsApp) y deja el resultado en "verify_sent_result".
+ */
+export async function verifySent(env: Env): Promise<void> {
+  if ((await setting(env, "verify_sent")) !== "pedido") return;
+  await setSetting(env, "verify_sent", "hecho");
+  const rows = await env.DB.prepare("SELECT phone, name, conversation_id FROM leads WHERE conversation_id IS NOT NULL AND status = 'enviado'").all<any>();
+  const out: any[] = [];
+  for (const l of rows.results ?? []) {
+    try {
+      const msgs: any[] = await messages(env, l.conversation_id);
+      const first = msgs.find((m) => m.role !== "user" && (m.kind ?? "message") === "message");
+      out.push({ phone: l.phone, name: l.name, status: first?.delivery_status ?? null, error: first?.delivery_error ?? null, ext: Boolean(first?.external_message_id), replies: msgs.filter((m) => m.role === "user").length });
+    } catch (e) {
+      out.push({ phone: l.phone, name: l.name, fail: String(e instanceof Error ? e.message : e).slice(0, 120) });
+    }
+  }
+  await setSetting(env, "verify_sent_result", JSON.stringify({ at: new Date().toISOString(), out }));
 }

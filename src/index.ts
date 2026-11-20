@@ -7,7 +7,7 @@ import { api } from "./api.ts";
 import { notify } from "./alerts.ts";
 import { lineLabel } from "./lines.ts";
 import { accessCheck } from "./access.ts";
-import { sendTest } from "./auto.ts";
+import { sendTest, verifySent } from "./auto.ts";
 import { watchLines } from "./linewatch.ts";
 import { authorized, login, loginPage, pwaAsset } from "./pwa.ts";
 import { demoChat, getDemo, renderDemo, trackView } from "./demo.ts";
@@ -52,6 +52,7 @@ export default {
       ctx.waitUntil(watchLines(env).then((s) => s.length && console.log("lines", s)).catch((e) => console.error("lines", e)));
       ctx.waitUntil(sendTest(env).then((r) => r && console.log("send_test", r)).catch((e) => console.error("send_test", e)));
       ctx.waitUntil(reanalyze(env).catch((e) => console.error("reanalyze", e)));
+      ctx.waitUntil(verifySent(env).catch((e) => console.error("verify_sent", e)));
       ctx.waitUntil((async () => {
         const order = await runOrder(env);
         if (order) return console.log("webdemo", order);   // traer altas ya gasta su vuelta
