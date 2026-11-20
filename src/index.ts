@@ -379,6 +379,11 @@ async function queue(req: Request, url: URL, env: Env): Promise<Response> {
         await markLead(env, m[1], "enviado", opener);
         return go("Enviado.");
       }
+      if (action === "save_opener" && opener) {
+        // Editado a mano: el envío automático usa este texto y las ofertas ya no lo pisan (opener_v 999).
+        await env.DB.prepare("UPDATE leads SET opener = ?, opener_v = 999, updated_at = ? WHERE phone = ? AND status IN ('hoy','cola')").bind(opener, now(), m[1]).run();
+        return go("✓ Mensaje guardado");
+      }
       if (action === "enviado" || action === "descartado" || action === "no_contactar") await markLead(env, m[1], action, opener);
       return go();
     }

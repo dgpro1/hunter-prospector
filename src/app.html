@@ -659,7 +659,8 @@ function bindSend(){
   $("#fill").onclick=async e=>{busy(e.target,"Redactando aperturas…");const d=await postForm("/panel/cola/fill",new FormData());toast(d.message);render()};
   $("#hunt").onsubmit=async e=>{e.preventDefault();const b=e.target.querySelector("button");busy(b,"Cazando…");const d=await postForm("/panel/cola/hunt",new FormData(e.target));toast(d.message);render()};
   $("#imp").onsubmit=async e=>{e.preventDefault();const b=e.target.querySelector("button");busy(b,"Importando…");const d=await postForm("/panel/cola/import",new FormData(e.target));toast(d.message);render()};
-  document.querySelectorAll("textarea[data-op]").forEach(t=>t.oninput=()=>{const a=document.querySelector(`[data-wa="${t.dataset.op}"]`);if(a)a.href=`https://wa.me/${t.dataset.op}?text=${encodeURIComponent(t.value)}`});
+  document.querySelectorAll("textarea[data-op]").forEach(t=>{t.oninput=()=>{const a=document.querySelector(`[data-wa="${t.dataset.op}"]`);if(a)a.href=`https://wa.me/${t.dataset.op}?text=${encodeURIComponent(t.value)}`};
+    const was=t.value;t.onchange=async()=>{if(t.readOnly||!t.value.trim()||t.value===was)return;const fd=new FormData();fd.set("action","save_opener");fd.set("opener",t.value);const d=await postForm("/panel/cola/lead/"+t.dataset.op,fd);toast(d.message||"✓ Mensaje guardado")}});
   document.querySelectorAll("[data-act]").forEach(b=>b.onclick=async()=>{const id=b.dataset.id;const fd=new FormData();fd.set("action",b.dataset.act);fd.set("opener",document.querySelector(`textarea[data-op="${id}"]`)?.value||"");busy(b,"…");const d=await postForm("/panel/cola/lead/"+id,fd);toast(d.message||"Listo");render()});
 }
 

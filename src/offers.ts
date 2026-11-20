@@ -56,7 +56,7 @@ export async function saveOffer(env: Env, o: Partial<Offer> & { niche: string })
     o.question_a?.trim() || null, o.cta_b?.trim() || null, o.status ?? "aprobada", new Date().toISOString(),
     o.intro?.trim() && o.intro.trim() !== DEFAULT_INTRO ? o.intro.trim() : null).run();
   // Las aperturas de ese nicho que aún no salieron se rehacen con la oferta nueva.
-  await env.DB.prepare("UPDATE leads SET opener_v = NULL WHERE status IN ('hoy','cola') AND opener IS NOT NULL").run();
+  await env.DB.prepare("UPDATE leads SET opener_v = NULL WHERE status IN ('hoy','cola') AND opener IS NOT NULL AND COALESCE(opener_v, 0) < 900").run();
   return (await env.DB.prepare("SELECT * FROM offers WHERE niche_key = ?").bind(key).first<Offer>())!;
 }
 
