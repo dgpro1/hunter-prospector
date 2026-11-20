@@ -10,10 +10,14 @@ import type { Msg } from "../src/timer.ts";
 // ── D1 de mentira sobre SQLite ────────────────────────────────────────────────
 function fakeD1() {
   const db = new DatabaseSync(":memory:");
-  db.exec(readFileSync(new URL("../schema.sql", import.meta.url), "utf8"));
-  for (const f of ["002_crm", "004_offers", "005_demos", "006_demo_booking", "007_alerts", "008_lines", "011_agent"]) {
-    for (const stmt of readFileSync(new URL(`../migrations/${f}.sql`, import.meta.url), "utf8").split(";")) {
-      try { db.exec(stmt); } catch { /* columnas que schema.sql ya trae */ }
+  // schema.sql primero y luego las migraciones, sentencia por sentencia: algunas ALTER dependen
+  // de tablas de una migración, y otras repiten columnas que schema.sql ya trae.
+  const files = ["../schema.sql", ...["002_crm", "004_offers", "005_demos", "006_demo_booking", "007_alerts", "008_lines", "011_agent"].map((f) => `../migrations/${f}.sql`)];
+  for (let pass = 0; pass < 2; pass++) {
+    for (const f of files) {
+      for (const stmt of readFileSync(new URL(f, import.meta.url), "utf8").split(";")) {
+        try { db.exec(stmt); } catch { /* ya aplicada, o depende de una tabla de otra pasada */ }
+      }
     }
   }
   const prep = (sql: string, args: unknown[] = []) => ({
