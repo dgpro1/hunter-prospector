@@ -37,7 +37,7 @@ export function buildOpener(lead: { name: string }, o: Pick<Offer, "niche" | "re
     .replaceAll("{resultado}", o.result.replace(/^a\s+/i, ""))
     .replaceAll("{plazo}", o.timeframe.replace(/^en\s+/i, ""))
     .replaceAll("{dolor}", o.pain.replace(/^sin\s+/i, ""));
-  const close = variant === "B" ? (o.cta_b?.replaceAll("{negocio}", short) || defaultB(short)) : (o.question_a || DEFAULT_A);
+  const close = (variant === "B" ? (o.cta_b || defaultB(short)) : (o.question_a || DEFAULT_A)).replaceAll("{negocio}", short);
   return `${pitch}\n\n${close}`;
 }
 
