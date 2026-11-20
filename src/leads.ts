@@ -99,8 +99,16 @@ export async function setQuota(env: Env, n: number): Promise<void> {
 /** Llena el cupo de hoy con los mejores de la cola (confianza alta y mejor rating primero) y les redacta la apertura. */
 export async function fillToday(env: Env): Promise<number> {
   const day = today();
+  // Lo que quedó sin enviar de días anteriores pasa a hoy primero (sin esto, el envío se queda sin nadie).
+  const quota = await getQuota(env);
+  await env.DB.prepare(
+    `UPDATE leads SET day = ? WHERE phone IN (
+       SELECT phone FROM leads WHERE status = 'hoy' AND day < ? ORDER BY day DESC, rowid LIMIT MAX(0, ? - (SELECT COUNT(*) FROM leads WHERE day = ? AND status IN ('hoy','enviado'))))`,
+  ).bind(day, day, quota, day).run();
+  // Lo que no cabe en el cupo de hoy vuelve a la cola, con su apertura ya escrita.
+  await env.DB.prepare("UPDATE leads SET status = 'cola' WHERE status = 'hoy' AND day < ?").bind(day).run();
   const used = await env.DB.prepare("SELECT COUNT(*) AS n FROM leads WHERE day = ? AND status IN ('hoy','enviado')").bind(day).first<{ n: number }>();
-  const room = (await getQuota(env)) - (used?.n ?? 0);
+  const room = quota - (used?.n ?? 0);
   if (room <= 0) return 0;
   const picked = await env.DB.prepare(
     `SELECT * FROM leads WHERE status = 'cola'
