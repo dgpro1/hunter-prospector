@@ -545,18 +545,22 @@ async function loadSendLines(){
   sel.value=d.chosen||"rotar";
   const ls=d.lines||[],ch=ls.find(l=>l.id===d.chosen);
   $("#slinemsg").innerHTML=d.error?esc(d.error):(ls.length?ls.map(l=>`${l.connected?"🟢":"🔴"} ${esc(l.label)}${l.number?" …"+esc(l.number.slice(-4)):""}`).join(" · "):"🔴 Sin líneas QR en el CRM")+(ch&&!ch.connected?` <b style="color:#ff6a00">· La línea elegida está caída: los envíos esperan</b>`:"")+(!ls.some(l=>l.connected)&&ls.length?` <b style="color:#ff6a00">· Envíos en pausa</b>`:"");
-  sel.onchange=async()=>{await post("/panel/api/send-lines",{line:sel.value});toast("Línea guardada")};
+  sel.onchange=async()=>{try{await post("/panel/api/send-lines",{line:sel.value});toast("✓ Línea guardada")}catch(e){toast("⚠️ No se pudo guardar la línea")}};
 }
 function hourOpts(v,a,b){let o="";for(let h=a;h<=b;h++)o+=`<option value="${h}" ${h===v?"selected":""}>${String(h).padStart(2,"0")}:00</option>`;return o}
 function bindHours(){
   const box=$("#hdays");if(!box)return;
-  box.querySelectorAll("[data-day]").forEach(b=>b.onclick=()=>b.classList.toggle("ghost"));
-  $("#saveh").onclick=async()=>{
+  const msg=$("#hsaved");let t;
+  const save=async()=>{
     const days=[...box.querySelectorAll("[data-day]")].filter(b=>!b.classList.contains("ghost")).map(b=>Number(b.dataset.day));
+    msg.textContent="Guardando…";msg.style.color="var(--dim)";
     const r=await fetch("/panel/api/send-hours",{method:"POST",headers:{"Content-Type":"application/json","X-App":"1"},body:JSON.stringify({from:Number($("#hfrom").value),to:Number($("#hto").value),days})}).then(r=>r.json()).catch(()=>({error:"No se pudo guardar"}));
-    if(r.error)return toast(r.error);
-    S.sending.hours=r.hours;toast("Horario guardado");
+    if(r.error){msg.textContent="⚠️ "+r.error;msg.style.color="var(--rojo)";return}
+    S.sending.hours=r.hours;msg.textContent="✓ Guardado";msg.style.color="var(--verde)";toast("Horario guardado");
   };
+  const later=()=>{clearTimeout(t);t=setTimeout(save,500)};
+  box.querySelectorAll("[data-day]").forEach(b=>b.onclick=()=>{b.classList.toggle("ghost");later()});
+  $("#hfrom").onchange=later;$("#hto").onchange=later;
 }
 function sendHTML(t){
   const s=S.sending,pct=s.quota?Math.min(100,100*s.sentToday/s.quota):0;
@@ -564,10 +568,10 @@ function sendHTML(t){
   <div class="grid">
     <div class="grid row2">
       <div class="card"><h3>🤖 Envío automático</h3>
-        <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px"><button class="switch ${s.auto?"on":""}" id="sw" ${!s.ready&&!s.auto?"disabled":""} aria-label="Encender o apagar"></button><b>${s.auto?"Encendido":"Apagado"}</b>${s.auto&&s.nextAt?`<span class="chip">⏭ ${when(s.nextAt)}</span>`:""}</div>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px"><button class="switch ${s.auto?"on":""}" id="sw" ${!s.ready&&!s.auto?"disabled":""} aria-label="Encender o apagar"></button><b>${s.auto?"Encendido":"Apagado"}</b>${s.auto?`<span class="chip">⏭ ${s.nextAt&&Date.parse(s.nextAt)>Date.now()?when(s.nextAt):"en el próximo turno dentro del horario"}</span>`:""}</div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:6px"><label style="color:var(--mut);font-size:13px">🕘 De</label><select class="in" id="hfrom" style="width:auto">${hourOpts(s.hours.from,0,23)}</select><label style="color:var(--mut);font-size:13px">a</label><select class="in" id="hto" style="width:auto">${hourOpts(s.hours.to,1,24)}</select>
           <span id="hdays" style="display:flex;gap:4px">${["D","L","M","X","J","V","S"].map((d,i)=>({d,i})).slice(1).concat([{d:"D",i:0}]).map(({d,i})=>`<button type="button" class="btn sm ${s.hours.days.includes(i)?"":"ghost"}" data-day="${i}" style="min-width:34px;padding:6px 8px">${d}</button>`).join("")}</span>
-          <button class="btn ghost sm" id="saveh">Guardar horario</button></div>
+          <span id="hsaved" style="color:var(--dim);font-size:12px">Los cambios se guardan solos</span></div>
         <p style="color:var(--mut);font-size:13px">En la hora local de cada negocio. Un mensaje cada 12–25 min. Si la línea se cae, espera; si otro envío falla, se apaga solo.</p>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px"><label style="color:var(--mut);font-size:13px">📞 Sale por</label><select class="in" id="sline" style="flex:0 1 240px"><option value="rotar">Turnarse entre mis líneas</option></select><span id="slinemsg" style="color:var(--dim);font-size:12px"></span></div>
         ${!s.ready?`<p style="color:var(--amarillo);font-size:13px;margin-top:8px">🔌 Falta conectar el CRM (secreto CRM_API_TOKEN en Cloudflare). Mientras, usa “Abrir en WhatsApp”.</p>`:""}
