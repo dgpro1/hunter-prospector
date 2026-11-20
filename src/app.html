@@ -587,7 +587,7 @@ function sendHTML(t){
     <div class="card" style="padding:14px 18px"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span style="font-size:13px;color:var(--mut)">🔔 También por Telegram (opcional): ${AL.telegram?"<b style='color:var(--verde)'>conectado</b>":AL.bot?"escríbele <b>/start</b> a tu bot y toca Conectar":"falta el secreto TELEGRAM_BOT_TOKEN"}</span><button class="btn ghost sm" id="tg">${AL.telegram?"Probar de nuevo":"Conectar"}</button></div></div>
     <div class="card"><h3>🧲 Tu oferta por nicho<span class="r" style="color:var(--mut)">Ayudo a <b style="color:var(--fg)">nicho</b> a <b style="color:var(--fg)">resultado</b> en <b style="color:var(--fg)">plazo</b> sin <b style="color:var(--fg)">lo que más odian</b></span></h3>
       <div class="grid" id="offers"><div class="empty">Cargando ofertas…</div></div>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><input class="in" id="newniche" placeholder="Nuevo nicho (ej. abogados, inmobiliarias)" style="flex:1 1 220px"><button class="btn ghost sm" id="addniche">✨ Sugerir con IA</button></div>
+      <div style="margin-top:12px"><button class="btn" id="addniche">+ Nuevo nicho</button></div>
     </div>
     <div class="card"><h3>🎯 Cazar en Google Maps</h3>
       <form id="hunt" style="display:flex;gap:8px;flex-wrap:wrap">
@@ -610,7 +610,7 @@ function sendHTML(t){
 function offerCard(o,fresh){
   const id="o-"+Math.random().toString(36).slice(2,8);
   return `<div class="lead-row" data-offer="${id}" style="${o.status==="sugerida"?"border-color:rgba(242,179,61,.5)":""}">
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b style="font-size:15px">${esc(o.niche)}</b>${o.status==="sugerida"?`<span class="chip" style="border-color:var(--amarillo);color:var(--amarillo)">✨ Sugerida por IA · revísala</span>`:`<span class="chip" style="border-color:var(--verde);color:var(--verde)">✓ Aprobada</span>`}</div>
+    ${o.status==="nuevo"?`<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap"><label style="flex:1 1 220px;font-size:12px;color:var(--mut)">Nombre del nicho<input class="in" name="niche" value="${esc(o.niche||"")}" placeholder="ej. abogados, inmobiliarias, veterinarias" style="width:100%"></label><button class="btn ghost sm" data-ai>✨ Rellenar con IA</button><button class="btn ghost sm" data-cancel>Cancelar</button></div>`:`<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><b style="font-size:15px">${esc(o.niche)}</b>${o.status==="sugerida"?`<span class="chip" style="border-color:var(--amarillo);color:var(--amarillo)">✨ Sugerida por IA · revísala</span>`:`<span class="chip" style="border-color:var(--verde);color:var(--verde)">✓ Aprobada</span>`}</div>`}
     <div class="fields f3">
       <label>Resultado<input class="in" name="result" value="${esc(o.result)}" placeholder="tener un 30% más de citas"></label>
       <label>Plazo<input class="in" name="timeframe" value="${esc(o.timeframe)}" placeholder="60 días"></label>
@@ -619,8 +619,8 @@ function offerCard(o,fresh){
       <label class="full">Cierre A · pregunta<input class="in" name="question_a" value="${esc(o.question_a||"")}" placeholder="¿Hoy quién les contesta el WhatsApp cuando están llenos o fuera de horario?"></label>
       <label class="full">Cierre B · demo<input class="in" name="cta_b" value="${esc(o.cta_b||"")}" placeholder="¿Te muestro en 2 minutos cómo se vería en {negocio}?"></label>
     </div>
-    <input type="hidden" name="niche" value="${esc(o.niche)}">
-    <div style="background:#0a0807;border:1px dashed var(--line2);border-radius:12px;padding:10px 12px;font-size:13px;white-space:pre-wrap" data-prev></div>
+    ${o.status==="nuevo"?"":`<input type="hidden" name="niche" value="${esc(o.niche)}">`}
+    <div style="font-size:12px;color:var(--mut)">Vista previa</div><div style="background:#0a0807;border:1px dashed var(--line2);border-radius:12px;padding:10px 12px;font-size:13px;white-space:pre-wrap" data-prev></div>
     <div class="actions"><button class="btn sm" data-save>${o.status==="sugerida"||fresh?"Aprobar y usar":"Guardar"}</button></div></div>`;
 }
 function previewOffer(box){
@@ -633,19 +633,25 @@ function previewOffer(box){
 }
 function bindOffer(box){
   box.querySelectorAll("input,textarea").forEach(i=>i.oninput=()=>previewOffer(box));previewOffer(box);
+  const ai=box.querySelector("[data-ai]");
+  if(ai)ai.onclick=async()=>{const niche=box.querySelector("[name=niche]").value.trim();if(!niche)return toast("Escribe primero el nombre del nicho");ai.disabled=true;ai.textContent="Pensando…";
+    try{const s=await post("/panel/api/offers/suggest",{niche});for(const k of ["result","timeframe","pain","intro","question_a","cta_b"])if(s[k]){const f=box.querySelector(`[name=${k}]`);if(f)f.value=s[k]}previewOffer(box);toast("✨ Listo, revísalo y ajústalo a tu gusto")}
+    catch(err){toast("No pude sugerir: "+err.message)}finally{ai.disabled=false;ai.textContent="✨ Rellenar con IA"}};
+  const cancel=box.querySelector("[data-cancel]");if(cancel)cancel.onclick=()=>box.remove();
   box.querySelector("[data-save]").onclick=async e=>{
-    const body={};box.querySelectorAll("input[name],textarea[name]").forEach(i=>body[i.name]=i.value);
+    const body={};box.querySelectorAll("input[name],textarea[name]").forEach(i=>body[i.name]=i.value.trim());
+    const miss=[["niche","el nombre del nicho"],["result","el resultado"],["timeframe","el plazo"],["pain","lo que más odian"]].find(([k])=>!body[k]);
+    if(miss)return toast("Falta "+miss[1]);
     e.target.disabled=true;e.target.textContent="Guardando…";
     try{await post("/panel/api/offers",body);toast(`Oferta de ${body.niche} guardada. Aperturas de hoy actualizadas.`);render()}catch(err){toast(err.message);e.target.disabled=false;e.target.textContent="Guardar"}
   };
 }
 async function loadOffers(){
   const list=await get("/panel/api/offers");const el=$("#offers");if(!el)return;
-  el.innerHTML=list.map(o=>offerCard(o)).join("")||`<div class="empty">Aún no hay ofertas. Escribe un nicho y pide una sugerencia.</div>`;
+  el.innerHTML=list.map(o=>offerCard(o)).join("")||`<div class="empty">Aún no hay ofertas. Toca “+ Nuevo nicho”.</div>`;
   el.querySelectorAll("[data-offer]").forEach(bindOffer);
-  $("#addniche").onclick=async e=>{const niche=$("#newniche").value.trim();if(!niche)return toast("Escribe el nicho");e.target.disabled=true;e.target.textContent="Pensando…";
-    try{const s=await post("/panel/api/offers/suggest",{niche});const w=document.createElement("div");w.innerHTML=offerCard({niche,...s,status:"sugerida"},true);const box=w.firstElementChild;el.prepend(box);bindOffer(box);$("#newniche").value=""}
-    catch(err){toast("No pude sugerir: "+err.message)}finally{e.target.disabled=false;e.target.textContent="✨ Sugerir con IA"}};
+  $("#addniche").onclick=()=>{const open=el.querySelector("[name=niche]:not([type=hidden])");if(open){open.focus();return}
+    const w=document.createElement("div");w.innerHTML=offerCard({niche:"",result:"",timeframe:"",pain:"",question_a:"",cta_b:"",status:"nuevo"},true);const box=w.firstElementChild;box.style.borderColor="var(--a)";el.querySelector(".empty")?.remove();el.prepend(box);bindOffer(box);box.scrollIntoView({behavior:"smooth",block:"center"});box.querySelector("[name=niche]").focus()};
 }
 function bindSend(){
   loadOffers();

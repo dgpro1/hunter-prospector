@@ -76,20 +76,21 @@ export async function offerFor(env: Env, niche: string | null): Promise<Offer> {
   });
 }
 
-export async function suggestOffer(env: Env, niche: string): Promise<{ result: string; timeframe: string; pain: string }> {
+export async function suggestOffer(env: Env, niche: string): Promise<{ result: string; timeframe: string; pain: string; question_a: string; cta_b: string }> {
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: { Authorization: `Bearer ${env.OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: env.OPENROUTER_MODEL, max_tokens: 200,
+      model: env.OPENROUTER_MODEL, max_tokens: 350,
       messages: [{
         role: "system",
         content: [
           "Completa la fórmula de oferta: 'Ayudo a {nicho} a {resultado} en {plazo} sin {lo que más odian}'.",
           "Vendemos un asistente de IA en WhatsApp + CRM que contesta al instante, agenda citas y hace seguimiento.",
           "resultado: empieza con verbo en infinitivo, concreto y medible, realista (nada exagerado). plazo: corto, ej. '60 días'. lo que más odian: lo que ese nicho detesta hacer o pagar, sin la palabra 'sin'.",
+          "question_a: una pregunta corta de cierre sobre cómo atienden hoy su WhatsApp, propia de ese nicho. cta_b: una pregunta corta ofreciendo mostrar una demo en 2 minutos, puede usar {negocio}.",
           TONE,
-          'Responde SOLO JSON: {"result":"...","timeframe":"...","pain":"..."}',
+          'Responde SOLO JSON: {"result":"...","timeframe":"...","pain":"...","question_a":"...","cta_b":"..."}',
         ].join("\n"),
       }, { role: "user", content: `Nicho: ${niche}` }],
     }),
@@ -97,5 +98,5 @@ export async function suggestOffer(env: Env, niche: string): Promise<{ result: s
   if (!res.ok) throw new Error(`OpenRouter → ${res.status}`);
   const raw = String(((await res.json()) as any)?.choices?.[0]?.message?.content ?? "");
   const j = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1));
-  return { result: String(j.result ?? ""), timeframe: String(j.timeframe ?? ""), pain: String(j.pain ?? "") };
+  return { result: String(j.result ?? ""), timeframe: String(j.timeframe ?? ""), pain: String(j.pain ?? ""), question_a: String(j.question_a ?? ""), cta_b: String(j.cta_b ?? "") };
 }
