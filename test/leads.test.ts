@@ -57,3 +57,11 @@ test("the sending hours can be moved from the panel", async () => {
   assert.equal(cleanHours({ from: 19, to: 9, days: [1] }), null);
   assert.equal(cleanHours({ from: 9, to: 19, days: [] }), null);
 });
+
+test("the greeting of the opener can be written freely per niche", async () => {
+  const { buildOpener } = await import("../src/offers.ts");
+  const o = { niche: "clínicas dentales", result: "tener más citas", timeframe: "60 días", pain: "otra recepcionista", question_a: "¿Quién les contesta?", cta_b: null };
+  assert.match(buildOpener({ name: "Clínica Sol" }, o, "A"), /^Hola, ¿hablo con Clínica Sol\? Soy Daniel y ayudo a clínicas dentales a tener más citas en 60 días sin otra recepcionista\./);
+  const free = buildOpener({ name: "Clínica Sol" }, { ...o, intro: "Buenas, {negocio} 👋 Vi sus reseñas en Google." }, "A");
+  assert.equal(free, "Buenas, Clínica Sol 👋 Vi sus reseñas en Google.\n\n¿Quién les contesta?");
+});

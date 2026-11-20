@@ -84,3 +84,5 @@ CREATE TABLE IF NOT EXISTS auto_messages (
   content TEXT,
   PRIMARY KEY (conversation_id, created_at)
 );
+-- Saludo libre por nicho: reemplaza la frase fija de la apertura. Admite {negocio} {nicho} {resultado} {plazo} {dolor}.
+ALTER TABLE offers ADD COLUMN intro TEXT;

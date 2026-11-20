@@ -615,6 +615,7 @@ function offerCard(o,fresh){
       <label>Resultado<input class="in" name="result" value="${esc(o.result)}" placeholder="tener un 30% más de citas"></label>
       <label>Plazo<input class="in" name="timeframe" value="${esc(o.timeframe)}" placeholder="60 días"></label>
       <label>Lo que más odian<input class="in" name="pain" value="${esc(o.pain)}" placeholder="contratar a otra recepcionista"></label>
+      <label class="full">Saludo (edítalo como quieras: {negocio} {nicho} {resultado} {plazo} {dolor} se llenan solos)<textarea class="in" name="intro" rows="2" placeholder="Hola, ¿hablo con {negocio}? Soy Daniel y ayudo a {nicho} a {resultado} en {plazo} sin {dolor}.">${esc(o.intro||"Hola, ¿hablo con {negocio}? Soy Daniel y ayudo a {nicho} a {resultado} en {plazo} sin {dolor}.")}</textarea></label>
       <label class="full">Cierre A · pregunta<input class="in" name="question_a" value="${esc(o.question_a||"")}" placeholder="¿Hoy quién les contesta el WhatsApp cuando están llenos o fuera de horario?"></label>
       <label class="full">Cierre B · demo<input class="in" name="cta_b" value="${esc(o.cta_b||"")}" placeholder="¿Te muestro en 2 minutos cómo se vería en {negocio}?"></label>
     </div>
@@ -625,12 +626,15 @@ function offerCard(o,fresh){
 function previewOffer(box){
   const v=n=>box.querySelector(`[name=${n}]`).value.trim();
   const short="Clínica Ejemplo";
-  box.querySelector("[data-prev]").textContent=`Hola, ¿hablo con ${short}? Soy Daniel y ayudo a ${v("niche")} a ${v("result").replace(/^a\s+/i,"")||"…"} en ${v("timeframe").replace(/^en\s+/i,"")||"…"} sin ${v("pain").replace(/^sin\s+/i,"")||"…"}.\n\n${v("question_a")||"¿Hoy quién les contesta el WhatsApp cuando están llenos o fuera de horario?"}`;
+  const intro=(v("intro")||"Hola, ¿hablo con {negocio}? Soy Daniel y ayudo a {nicho} a {resultado} en {plazo} sin {dolor}.")
+    .replaceAll("{negocio}",short).replaceAll("{nicho}",v("niche")).replaceAll("{resultado}",v("result").replace(/^a\s+/i,"")||"…")
+    .replaceAll("{plazo}",v("timeframe").replace(/^en\s+/i,"")||"…").replaceAll("{dolor}",v("pain").replace(/^sin\s+/i,"")||"…");
+  box.querySelector("[data-prev]").textContent=`${intro}\n\n${v("question_a")||"¿Hoy quién les contesta el WhatsApp cuando están llenos o fuera de horario?"}`;
 }
 function bindOffer(box){
-  box.querySelectorAll("input").forEach(i=>i.oninput=()=>previewOffer(box));previewOffer(box);
+  box.querySelectorAll("input,textarea").forEach(i=>i.oninput=()=>previewOffer(box));previewOffer(box);
   box.querySelector("[data-save]").onclick=async e=>{
-    const body={};box.querySelectorAll("input[name]").forEach(i=>body[i.name]=i.value);
+    const body={};box.querySelectorAll("input[name],textarea[name]").forEach(i=>body[i.name]=i.value);
     e.target.disabled=true;e.target.textContent="Guardando…";
     try{await post("/panel/api/offers",body);toast(`Oferta de ${body.niche} guardada. Aperturas de hoy actualizadas.`);render()}catch(err){toast(err.message);e.target.disabled=false;e.target.textContent="Guardar"}
   };

@@ -7,7 +7,7 @@ export const OPENER_V = 4; // versión de la fórmula: las aperturas más viejas
 
 export type Offer = {
   niche_key: string; niche: string; result: string; timeframe: string; pain: string;
-  question_a: string | null; cta_b: string | null; status: "aprobada" | "sugerida";
+  question_a: string | null; cta_b: string | null; intro?: string | null; status: "aprobada" | "sugerida";
 };
 
 export const nicheKey = (s: unknown) =>
@@ -27,10 +27,16 @@ export function shortName(name: string): string {
 export const DEFAULT_A = "¿Hoy quién les contesta el WhatsApp cuando están llenos o fuera de horario?";
 export const defaultB = (short: string) => `¿Te muestro en 2 minutos cómo se vería en ${short}?`;
 
-export function buildOpener(lead: { name: string }, o: Pick<Offer, "niche" | "result" | "timeframe" | "pain" | "question_a" | "cta_b">, variant: string): string {
+export const DEFAULT_INTRO = "Hola, ¿hablo con {negocio}? Soy Daniel y ayudo a {nicho} a {resultado} en {plazo} sin {dolor}.";
+
+export function buildOpener(lead: { name: string }, o: Pick<Offer, "niche" | "result" | "timeframe" | "pain" | "question_a" | "cta_b"> & { intro?: string | null }, variant: string): string {
   const short = shortName(lead.name);
-  const pain = o.pain.replace(/^sin\s+/i, "");
-  const pitch = `Hola, ¿hablo con ${short}? Soy Daniel y ayudo a ${o.niche} a ${o.result.replace(/^a\s+/i, "")} en ${o.timeframe.replace(/^en\s+/i, "")} sin ${pain}.`;
+  const pitch = (o.intro?.trim() || DEFAULT_INTRO)
+    .replaceAll("{negocio}", short)
+    .replaceAll("{nicho}", o.niche)
+    .replaceAll("{resultado}", o.result.replace(/^a\s+/i, ""))
+    .replaceAll("{plazo}", o.timeframe.replace(/^en\s+/i, ""))
+    .replaceAll("{dolor}", o.pain.replace(/^sin\s+/i, ""));
   const close = variant === "B" ? (o.cta_b?.replaceAll("{negocio}", short) || defaultB(short)) : (o.question_a || DEFAULT_A);
   return `${pitch}\n\n${close}`;
 }
@@ -43,11 +49,12 @@ export async function listOffers(env: Env): Promise<Offer[]> {
 export async function saveOffer(env: Env, o: Partial<Offer> & { niche: string }): Promise<Offer> {
   const key = nicheKey(o.niche);
   await env.DB.prepare(
-    `INSERT INTO offers (niche_key, niche, result, timeframe, pain, question_a, cta_b, status, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-     ON CONFLICT(niche_key) DO UPDATE SET niche = ?2, result = ?3, timeframe = ?4, pain = ?5, question_a = ?6, cta_b = ?7, status = ?8, updated_at = ?9`,
+    `INSERT INTO offers (niche_key, niche, result, timeframe, pain, question_a, cta_b, status, updated_at, intro)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+     ON CONFLICT(niche_key) DO UPDATE SET niche = ?2, result = ?3, timeframe = ?4, pain = ?5, question_a = ?6, cta_b = ?7, status = ?8, updated_at = ?9, intro = ?10`,
   ).bind(key, o.niche.trim(), (o.result ?? "").trim(), (o.timeframe ?? "").trim(), (o.pain ?? "").trim(),
-    o.question_a?.trim() || null, o.cta_b?.trim() || null, o.status ?? "aprobada", new Date().toISOString()).run();
+    o.question_a?.trim() || null, o.cta_b?.trim() || null, o.status ?? "aprobada", new Date().toISOString(),
+    o.intro?.trim() && o.intro.trim() !== DEFAULT_INTRO ? o.intro.trim() : null).run();
   // Las aperturas de ese nicho que aún no salieron se rehacen con la oferta nueva.
   await env.DB.prepare("UPDATE leads SET opener_v = NULL WHERE status IN ('hoy','cola') AND opener IS NOT NULL").run();
   return (await env.DB.prepare("SELECT * FROM offers WHERE niche_key = ?").bind(key).first<Offer>())!;
