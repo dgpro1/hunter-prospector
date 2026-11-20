@@ -22,6 +22,10 @@ export async function notify(env: Env, lead: string, kind: AlertKind, text: stri
 async function telegram(env: Env, text: string): Promise<void> {
   const chat = await setting(env, "telegram_chat");
   if (!env.TELEGRAM_BOT_TOKEN || !chat) return;
+  await sendTo(env, chat, text);
+}
+
+async function sendTo(env: Env, chat: string, text: string): Promise<void> {
   const r = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
     method: "POST", headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ chat_id: chat, text, disable_web_page_preview: true }),
@@ -29,17 +33,37 @@ async function telegram(env: Env, text: string): Promise<void> {
   if (!r.ok) throw new Error(`Telegram → ${r.status}`);
 }
 
-/** Busca el último chat que le escribió al bot (tú, con /start) y lo guarda como destino de los avisos. */
-export async function linkTelegram(env: Env): Promise<{ ok: boolean; error?: string; name?: string }> {
-  if (!env.TELEGRAM_BOT_TOKEN) return { ok: false, error: "Falta el secreto TELEGRAM_BOT_TOKEN en Cloudflare" };
-  const r = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/getUpdates?limit=50`);
-  const d: any = await r.json().catch(() => ({}));
-  if (!d.ok) return { ok: false, error: d.description ?? `Telegram → ${r.status}` };
-  const msg = [...(d.result ?? [])].reverse().map((u: any) => u.message).find((m: any) => m?.chat?.type === "private");
-  if (!msg) return { ok: false, error: "Escríbele /start a tu bot en Telegram y vuelve a tocar Conectar" };
-  await setSetting(env, "telegram_chat", String(msg.chat.id));
-  await telegram(env, "✅ Listo. Aquí te avisaré cuando un prospecto responda, abra su demo, hable con el agente o agende.");
-  return { ok: true, name: msg.chat.first_name ?? "" };
+/**
+ * Elige a qué chat llegan los avisos. Sin `chatId`, busca el último chat privado que le escribió
+ * al bot (tú, con /start). Si el bot es VISION, Telegram ya le entrega los mensajes al CRM por
+ * webhook y getUpdates responde 409: entonces se pega el ID del chat (te lo da @userinfobot).
+ * Solo se guarda después de que el mensaje de prueba llegó.
+ */
+export async function linkTelegram(env: Env, chatId?: string): Promise<{ ok: boolean; error?: string; name?: string; needsId?: boolean }> {
+  if (!env.TELEGRAM_BOT_TOKEN) return { ok: false, error: "Falta el secreto TELEGRAM_BOT_TOKEN en Cloudflare (pon ahí el token del bot de VISION)" };
+  let chat = String(chatId ?? "").trim();
+  let name = "";
+  if (chat) {
+    if (!/^-?\d{5,20}$/.test(chat)) return { ok: false, needsId: true, error: "El ID de chat son solo números (te lo da @userinfobot en Telegram)" };
+  } else {
+    const r = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/getUpdates?limit=50`);
+    const d: any = await r.json().catch(() => ({}));
+    if (r.status === 409 || d.error_code === 409) {
+      return { ok: false, needsId: true, error: "Ese bot ya lo usa VISION. Pega tu ID de chat de Telegram (escríbele a @userinfobot y te lo da) y toca Conectar" };
+    }
+    if (!d.ok) return { ok: false, error: d.description ?? `Telegram → ${r.status}` };
+    const msg = [...(d.result ?? [])].reverse().map((u: any) => u.message).find((m: any) => m?.chat?.type === "private");
+    if (!msg) return { ok: false, needsId: true, error: "Escríbele /start a tu bot en Telegram y vuelve a tocar Conectar, o pega tu ID de chat" };
+    chat = String(msg.chat.id);
+    name = msg.chat.first_name ?? "";
+  }
+  try {
+    await sendTo(env, chat, "✅ Listo. Aquí te avisaré cuando un prospecto responda, abra su demo, hable con el agente o agende.");
+  } catch (e) {
+    return { ok: false, needsId: true, error: `Telegram no pudo escribirte (${(e as Error).message}). Abre el bot y tócale Iniciar, y revisa el ID` };
+  }
+  await setSetting(env, "telegram_chat", chat);
+  return { ok: true, name };
 }
 
 export async function listAlerts(env: Env) {

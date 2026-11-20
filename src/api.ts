@@ -43,7 +43,7 @@ export async function api(req: Request, url: URL, env: Env): Promise<Response> {
     await env.DB.prepare("INSERT INTO alerts (id, lead, kind, text, created_at) VALUES (?, '', 'prueba', ?, ?)").bind(crypto.randomUUID(), "✅ Notificaciones activas: así te avisaré de cada prospecto caliente", new Date().toISOString()).run();
     return json({ sent: await pushAll(env) });
   }
-  if (path === "/telegram" && req.method === "POST") return json(await linkTelegram(env));
+  if (path === "/telegram" && req.method === "POST") return json(await linkTelegram(env, String(((await req.json().catch(() => ({}))) as any)?.chat ?? "")));
   if (path === "/leads") return json(await leads(env));
   if (path === "/today") {
     const r = await env.DB.prepare("SELECT * FROM leads WHERE day = ? ORDER BY status = 'enviado', rowid").bind(today()).all();
