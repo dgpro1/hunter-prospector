@@ -4,8 +4,8 @@ import { setting, setSetting } from "./auto.ts";
 import { pushAll } from "./push.ts";
 import { shortNumber } from "./lines.ts";
 
-export type AlertKind = "respondio" | "demo_abierta" | "demo_chat" | "cita";
-const ICON: Record<AlertKind, string> = { respondio: "💬", demo_abierta: "🔥", demo_chat: "🤖", cita: "📅" };
+export type AlertKind = "respondio" | "demo_abierta" | "demo_chat" | "cita" | "agente" | "traspaso";
+const ICON: Record<AlertKind, string> = { respondio: "💬", demo_abierta: "🔥", demo_chat: "🤖", cita: "📅", agente: "🧠", traspaso: "🙋" };
 
 export async function notify(env: Env, lead: string, kind: AlertKind, text: string): Promise<void> {
   const l = await env.DB.prepare("SELECT l.name, l.city, l.line, li.label FROM leads l LEFT JOIN lines li ON li.number = l.line WHERE l.phone = ?")
