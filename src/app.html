@@ -301,6 +301,16 @@ loadAlerts();setInterval(()=>{if(document.visibilityState==="visible")loadAlerts
 
 async function load(){S=await get("/panel/api/state");nav()}
 async function loadLeads(){LEADS=await get("/panel/api/leads")}
+function agentCard(){const A=S.agent||{mode:"apagado",stages:{},cases:"",pending:0};const st=A.stages||{};
+  const L={apagado:"⏸️ Apagado",sombra:"👀 Sombra",auto:"⚡ Automático"};
+  const H={apagado:"No responde: quedan borradores como siempre.",sombra:"Escribe cada respuesta y tú la apruebas en Bandeja (también te avisa en Telegram).",auto:"Responde solo con pausa de 1 a 4 min, 8–21 h hora del negocio. Se calla si tú escribes."};
+  const n=k=>st[k]||0;
+  return `<div class="card"><h3>🧠 Agente Cerrador<span class="r" style="color:var(--mut)">${n("conversando")+n("demo_enviada")+n("llamada_propuesta")} en curso · ${n("agendada")} llamadas · ${n("traspaso")} para ti${A.pending?` · <b style="color:var(--a)">${A.pending} por aprobar</b>`:""}</span></h3>
+    <p style="color:var(--mut);font-size:13px;margin-bottom:10px">Desde la primera respuesta de una persona: resuelve dudas, envía la demo y agenda la llamada de 15 min en tu Google Calendar (por el calendario del CRM). Te pasa el chat si piden precio con insistencia, preguntan si es un bot, se molestan o tú escribes.</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">${["apagado","sombra","auto"].map(m=>`<button class="btn ${A.mode===m?"":"ghost"} sm" data-am="${m}">${L[m]}</button>`).join("")}</div>
+    <p style="color:var(--dim);font-size:12px;margin-top:8px">${H[A.mode]||""}</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><input class="in" id="acases" value="${esc(A.cases||"")}" placeholder="Casos reales que puede mencionar (ej. 5 clínicas en Guadalajara ya lo usan; Entre Divas: salón de uñas que agenda solo)" style="flex:1 1 260px"><button class="btn ghost sm" id="savecases">Guardar</button></div>
+  </div>`}
 async function render(){
   nav();
   Object.values(charts).forEach(c=>c.destroy());charts={};
@@ -578,6 +588,7 @@ function sendHTML(t){
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><label style="color:var(--mut);font-size:13px">Cupo diario <input class="in" id="quota" type="number" min="1" max="60" value="${s.quota}" style="width:80px"></label><button class="btn ghost sm" id="saveq">Guardar</button><button class="btn sm" id="fill">Armar el día</button><button class="btn ghost sm" id="rew">Reescribir aperturas</button></div>
         <p style="color:var(--dim);font-size:12px;margin-top:8px">${S.kpis.queued||0} en cola. Toma primero los de confianza alta y mejor rating y les arma la apertura con la oferta de su nicho (mitad cierre A, mitad B).</p></div>
     </div>
+    ${agentCard()}
     <div class="card" style="padding:14px 18px"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span style="font-size:13px;color:var(--mut)">📲 Tu WhatsApp para el botón "Habla con Daniel" de las demos</span><input class="in" id="dwa" value="${esc(S.danielWa||"")}" placeholder="57 300 123 4567" style="flex:0 1 200px"><button class="btn ghost sm" id="savewa">Guardar</button></div></div>
     <div class="card" style="padding:14px 18px"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span style="font-size:13px;color:var(--mut);flex:1 1 220px">📱 App en tu celular: ${STANDALONE?"<b style='color:var(--verde)'>instalada</b>":"instálala para tenerla como app"} · Avisos: ${pushState()==="on"?"<b style='color:var(--verde)'>activos en este equipo</b>":"apagados en este equipo"}</span>${STANDALONE?"":`<button class="btn ghost sm" onclick="installApp()">Instalar app</button>`}${pushState()==="on"?"":`<button class="btn sm" onclick="enablePush()">🔔 Activar avisos</button>`}</div></div>
     <div class="card" style="padding:14px 18px"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><span style="font-size:13px;color:var(--mut)">🔔 Avisos a tu Telegram (VISION): ${AL.telegram?"<b style='color:var(--verde)'>conectado</b>":AL.bot?"escríbele <b>/start</b> a tu bot y toca Conectar":"falta el secreto TELEGRAM_BOT_TOKEN"}</span>${AL.telegram?"":`<input class="in" id="tgchat" inputmode="numeric" placeholder="Tu ID de chat (si el bot es VISION)" style="width:230px">`}<button class="btn ghost sm" id="tg">${AL.telegram?"Probar de nuevo":"Conectar"}</button></div></div>
@@ -642,6 +653,8 @@ async function loadOffers(){
 function bindSend(){
   loadOffers();
   $("#tg").onclick=async()=>{const d=await post("/panel/api/telegram",{chat:($("#tgchat")||{}).value||""}).catch(e=>({error:e.message}));if(d.ok){toast("Telegram conectado ✅ Te mandé un mensaje de prueba");await loadAlerts();render()}else toast(d.error||"No se pudo")};
+  document.querySelectorAll("[data-am]").forEach(b=>b.onclick=async()=>{const m=b.dataset.am;if(m==="auto"&&!confirm("¿Encender el agente en automático? Responderá solo a los prospectos."))return;await post("/panel/api/settings",{agent_mode:m});S.agent={...(S.agent||{}),mode:m};toast("Agente: "+b.textContent.trim());render()});
+  if($("#savecases"))$("#savecases").onclick=async()=>{await post("/panel/api/settings",{agent_cases:$("#acases").value});toast("Guardado: el agente solo usará estos casos")};
   $("#savewa").onclick=async()=>{await post("/panel/api/settings",{daniel_wa:$("#dwa").value});toast("Guardado: las demos llevan tu WhatsApp")};
   const busy=(b,t)=>{b.disabled=true;b.dataset.t=b.textContent;b.textContent=t};
   loadSendLines();bindHours();

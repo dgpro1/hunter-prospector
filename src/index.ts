@@ -18,6 +18,7 @@ import { PAISES, runHunt } from "./hunt.ts";
 import { generateOne, runOrder, panelRoute as websPanel, publicRoute as webPublic } from "./webdemos.ts";
 import { sendErrorText, sendFirst, sendReady, setSetting, setting, tick } from "./auto.ts";
 import type { Msg } from "./timer.ts";
+import { agentCron, agentMode, agentTurn, decide, openRouter, sendDraft, callSlots, type AgentStage } from "./agent.ts";
 import { humanDuration } from "./timer.ts";
 
 const now = () => new Date().toISOString();
@@ -52,6 +53,8 @@ export default {
       ctx.waitUntil(watchLines(env).then((s) => s.length && console.log("lines", s)).catch((e) => console.error("lines", e)));
       ctx.waitUntil(sendTest(env).then((r) => r && console.log("send_test", r)).catch((e) => console.error("send_test", e)));
       ctx.waitUntil(reanalyze(env).catch((e) => console.error("reanalyze", e)));
+      // Agente Cerrador: lo programado que ya toca y los seguimientos del día 1, 3 y 7.
+      ctx.waitUntil(agentCron(env).then((r) => console.log("agent", r)).catch((e) => console.error("agent", e)));
       ctx.waitUntil((async () => {
         const order = await runOrder(env);
         if (order) return console.log("webdemo", order);   // traer altas ya gasta su vuelta
@@ -221,6 +224,17 @@ async function handleReply(env: Env, data: any): Promise<void> {
     await moveStage(env, conversationId, "respondio").catch(() => {});
   }
 
+  // Agente Cerrador: desde la primera respuesta de una persona, el agente lleva la conversación.
+  const mode = await agentMode(env);
+  if (mode !== "apagado") {
+    if (intent === "no_interesa") {
+      await env.DB.prepare("UPDATE agent_state SET stage = 'cerrado', updated_at = ? WHERE conversation_id = ?").bind(now(), conversationId).run();
+    } else if (!analysis.auto) {
+      await agentTurn(env, { conversationId, lead, history, text: content, summary: analysis.summary, autoTimes, mode });
+      return;
+    }
+  }
+
   const text = await draft(env, { branch, history, contactName: data.contact_name ?? null, firstOut, minutes, phone: lead, autoTimes, summary: analysis.summary });
   if (!text) return;
   // Un borrador pendiente por chat: el nuevo reemplaza al anterior.
@@ -240,7 +254,11 @@ async function panel(req: Request, url: URL, env: Env): Promise<Response> {
     const row = await env.DB.prepare("SELECT * FROM drafts WHERE id = ? AND status = 'pendiente'").bind(id).first<any>();
     if (row) {
       await loadClientId(env);
-      if (action === "send") {
+      if (action === "send" && row.action) {
+        // Borrador del agente: se envía y aplica su acción (demo, horarios o cita).
+        const form = await req.formData();
+        await sendDraft(env, row, String(form.get("text") ?? row.text).trim());
+      } else if (action === "send") {
         const form = await req.formData();
         const text = String(form.get("text") ?? row.text).trim();
         await reply(env, row.conversation_id, text, id);
@@ -264,6 +282,7 @@ async function panel(req: Request, url: URL, env: Env): Promise<Response> {
   }
   if (url.pathname === "/panel/simular/api" && req.method === "POST") return simulate(req, env);
   if (url.pathname === "/panel/simular/negocio" && req.method === "POST") return fakeBusiness(req, env);
+  if (url.pathname === "/panel/simular/agente" && req.method === "POST") return simulateAgent(req, env);
 
   const chat = url.pathname.match(/^\/panel\/chat\/([\w-]+)(\/messages\.json|\/reply)?$/);
   if (chat) {
@@ -445,4 +464,26 @@ async function demoRoute(req: Request, env: Env, ctx: ExecutionContext, slug: st
   if (!own) ctx.waitUntil(trackView(env, d).catch(() => {}));
   const contact = (await env.DB.prepare("SELECT value FROM settings WHERE key = 'daniel_wa'").first<{ value: string }>())?.value ?? null;
   return new Response(renderDemo(d, contact), { headers: { "Content-Type": "text/html; charset=utf-8" } });
+}
+
+/**
+ * Corre la decisión del Agente Cerrador sobre una conversación inventada, sin enviar nada,
+ * sin crear demos ni citas: para probar casos (precio, "¿eres un bot?", silencio…).
+ */
+async function simulateAgent(req: Request, env: Env): Promise<Response> {
+  const body: any = await req.json().catch(() => null);
+  const history: Msg[] = Array.isArray(body?.messages) ? body.messages.slice(-40) : [];
+  const stage: AgentStage = body?.stage ?? "conversando";
+  const phone = String(body?.phone ?? "5213300000000");
+  const { slots, source } = await callSlots(env);
+  try {
+    const d = await decide(openRouter(env), {
+      business: String(body?.business ?? "Clínica Dental Ejemplo"), phone, stage, demoUrl: body?.demo ? `${env.PUBLIC_URL}/demo/ejemplo` : null,
+      demoViewed: Boolean(body?.demoViewed), slots, followup: Number.isInteger(body?.followup) ? body.followup : null, priceAsks: Number(body?.priceAsks ?? 0),
+      cases: (await setting(env, "agent_cases")) ?? "",
+    }, history);
+    return Response.json({ ...d, slots, slotsFrom: source });
+  } catch (e) {
+    return Response.json({ error: String(e) }, { status: 502 });
+  }
 }

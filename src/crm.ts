@@ -145,3 +145,28 @@ export async function verifySignature(secret: string, raw: ArrayBuffer, signatur
   for (let i = 0; i < hex.length; i++) diff |= hex.charCodeAt(i) ^ signature.charCodeAt(i);
   return diff === 0;
 }
+
+/** Horarios libres del calendario del cliente en el CRM (permiso appointments.read). Inicio de cada hueco en ISO. */
+export async function freeTimes(env: Env, dateFrom: string, dateTo: string, minutes: number): Promise<string[]> {
+  const q = new URLSearchParams({ date_from: dateFrom, date_to: dateTo, duration_minutes: String(minutes) });
+  const r = await call(env, `/appointments/availability?${q}`);
+  return (r.days ?? []).flatMap((d: any) => (d.slots ?? []).map((s: any) => String(s.start_time)));
+}
+
+/**
+ * Agenda la llamada en el CRM (permiso appointments.manage). El CRM la sube al Google Calendar
+ * conectado del cliente, igual que hacen los agentes de tus clientes.
+ */
+export async function bookCall(
+  env: Env, opts: { title: string; start: string; minutes: number; conversationId: string; notes: string },
+): Promise<{ id: string }> {
+  const r = await call(env, "/appointments", {
+    method: "POST",
+    headers: { "Idempotency-Key": `llamada-${opts.conversationId}-${opts.start}` },
+    body: JSON.stringify({
+      title: opts.title, start_time: opts.start, duration_minutes: opts.minutes,
+      conversation_id: opts.conversationId, notes: opts.notes.slice(0, 2000), created_by_role: "ai",
+    }),
+  });
+  return { id: String(r.id) };
+}

@@ -11,6 +11,7 @@ import { createDemo } from "./demo.ts";
 import { listLines, renameLine } from "./lines.ts";
 import { linkTelegram, listAlerts, markSeen } from "./alerts.ts";
 import { pushAll, saveSubscription, vapidPublic } from "./push.ts";
+import { agentMode } from "./agent.ts";
 
 const now = () => new Date().toISOString();
 const BOG = "'-5 hours'"; // Bogotá no tiene horario de verano
@@ -81,6 +82,13 @@ export async function api(req: Request, url: URL, env: Env): Promise<Response> {
   }
   if (path === "/settings" && req.method === "POST") {
     const b: any = await req.json().catch(() => ({}));
+    if ("agent_mode" in b) {
+      const mode = ["apagado", "sombra", "auto"].includes(b.agent_mode) ? b.agent_mode : "apagado";
+      await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('agent_mode', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(mode).run();
+    }
+    if ("agent_cases" in b) {
+      await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('agent_cases', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(String(b.agent_cases ?? "").slice(0, 1500)).run();
+    }
     if ("daniel_wa" in b) {
       const wa = String(b.daniel_wa ?? "").replace(/\D/g, "");
       await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('daniel_wa', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").bind(wa).run();
@@ -165,6 +173,7 @@ async function state(env: Env) {
     },
     countries: Object.values(PAISES).map((p) => [p.code, p.name]),
     danielWa: (await setting(env, "daniel_wa")) || "",
+    agent: await agentSummary(env),
   };
 }
 
@@ -221,4 +230,12 @@ async function createLead(req: Request, env: Env): Promise<Response> {
   if (!r.meta.changes) return json({ error: "Ese número ya está en tu CRM." }, 409);
   await addNote(env, phone, "Ficha creada a mano");
   return json(await leadDetail(env, phone));
+}
+
+/** Tarjeta del Agente Cerrador: modo, casos que puede citar y cómo va. */
+async function agentSummary(env: Env) {
+  const r = await env.DB.prepare("SELECT stage, COUNT(*) n FROM agent_state GROUP BY stage").all<{ stage: string; n: number }>();
+  const by = Object.fromEntries((r.results ?? []).map((x) => [x.stage, x.n]));
+  const pending = await env.DB.prepare("SELECT COUNT(*) n FROM drafts WHERE status = 'pendiente' AND action IS NOT NULL").first<{ n: number }>();
+  return { mode: await agentMode(env), cases: (await setting(env, "agent_cases")) || "", stages: by, pending: pending?.n ?? 0 };
 }
