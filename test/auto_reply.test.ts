@@ -24,3 +24,11 @@ test("a person who answers is not automatic, and a refusal always counts", async
   assert.equal(a.intent, "no_interesa");
   assert.equal(a.who, "dueno");
 });
+
+test("an away message saying they cannot answer now is automatic, not a refusal", async () => {
+  const away = "Gracias por tu mensaje. En este momento no podemos responder, pero lo haremos lo antes posible.";
+  const env: any = { CLASSIFY_MODEL: "m", AI: { run: async () => ({ response: '{"auto":false,"who":"desconocido","intent":"no_interesa","summary":"No pueden responder"}' }) } };
+  const a = await analyze(env, [], away, 1500);
+  assert.equal(a.auto, true);
+  assert.equal(a.intent, "otro");
+});

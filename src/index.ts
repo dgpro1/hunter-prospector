@@ -1,6 +1,6 @@
 // Hunter Prospector · worker v1 (Canal 2: tú escribes desde el anuncio, el worker toma el relevo).
 import { type Env, holdForWorker, messages, moveStage, reply, verifySignature } from "./crm.ts";
-import { analyze, classify, draft, pickBranch, TONE } from "./brain.ts";
+import { analyze, classify, draft, looksAutomatic, pickBranch, TONE } from "./brain.ts";
 import { colorFor, prospectingStart, responseMinutes } from "./timer.ts";
 import APP from "./app.html";
 import { api } from "./api.ts";
@@ -149,7 +149,11 @@ async function handleReply(env: Env, data: any): Promise<void> {
   const autoRows = await env.DB.prepare("SELECT created_at FROM auto_messages WHERE conversation_id = ?").bind(conversationId).all<{ created_at: string }>();
   const autoTimes = (autoRows.results ?? []).map((r) => r.created_at);
   // La primera respuesta de una PERSONA (los automáticos no cuentan).
-  const firstHuman = history.find((m) => m.role === "user" && (m.kind ?? "message") === "message" && !autoTimes.includes(m.created_at))?.created_at ?? null;
+  const firstHuman = history.find((m, i) => {
+    if (m.role !== "user" || (m.kind ?? "message") !== "message" || autoTimes.includes(m.created_at)) return false;
+    const ours = [...history.slice(0, i)].reverse().find((o) => o.role !== "user" && (o.kind ?? "message") === "message");
+    return !looksAutomatic(m.content, ours ? (Date.parse(m.created_at) - Date.parse(ours.created_at)) / 1000 : null);
+  })?.created_at ?? null;
   const firstIn = known?.first_in_at ?? (analysis.auto ? null : firstHuman ?? inAt);
   const isFirstReply = !analysis.auto && !known?.first_in_at;
   const minutes = firstIn ? responseMinutes(firstOut, firstIn) : null;

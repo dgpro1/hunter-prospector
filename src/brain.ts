@@ -22,21 +22,27 @@ export type Intent = "interesado" | "pregunta" | "no_interesa" | "otro";
 export type Branch = "tarde" | "rapido" | "equipo" | "dueno" | "seguimiento" | "cierre" | "automatico";
 
 /** ¿Es un mensaje automático (bienvenida, ausencia o respuesta rápida de WhatsApp Business)? Señales sin IA. */
-const AUTO_PATTERNS = [
+// Bienvenidas: solo cuentan si llegan poco después de nuestro mensaje (una persona también puede saludar así).
+const GREETING_PATTERNS = [
   /gracias por (comunicarte|comunicarse|escribirnos|contactarnos|tu mensaje|su mensaje)/i,
-  /(en breve|a la brevedad|lo antes posible|pronto) (te|le|nos)? ?(responderemos|atenderemos|contactaremos|pondremos en contacto)/i,
-  /(nuestro|el) horario (de atenci[oó]n)? es/i,
-  /(fuera|fuera del) horario/i,
-  /mensaje autom[aá]tico/i,
   /bienvenid[oa] a /i,
   /¿?en qu[eé] (te|le) podemos ayudar\??/i,
   /¿?c[oó]mo (te|le) podemos ayudar\??/i,
 ];
+// Ausencias y avisos: son automáticos a cualquier hora.
+const AWAY_PATTERNS = [
+  /mensaje autom[aá]tico/i,
+  /no (podemos|puedo) (responder|contestar|atender)/i,
+  /(en breve|a la brevedad|lo antes posible)/i,
+  /(fuera del?|nuestro) horario/i,
+  /en este momento no (estamos|podemos)/i,
+];
+export const autoShaped = (text: string) => AWAY_PATTERNS.some((r) => r.test(text)) || GREETING_PATTERNS.some((r) => r.test(text));
 export function looksAutomatic(text: string, secondsAfterOurs: number | null): boolean {
-  const hit = AUTO_PATTERNS.some((r) => r.test(text));
   // Una respuesta a los pocos segundos de nuestro mensaje casi nunca la escribe una persona.
   if (secondsAfterOurs !== null && secondsAfterOurs < 10) return true;
-  return hit && (secondsAfterOurs === null || secondsAfterOurs < 180);
+  if (AWAY_PATTERNS.some((r) => r.test(text))) return true;
+  return GREETING_PATTERNS.some((r) => r.test(text)) && (secondsAfterOurs === null || secondsAfterOurs < 180);
 }
 
 /** Compatibilidad: solo quién y qué (para el simulador). */
@@ -78,7 +84,8 @@ export async function analyze(env: Env, history: Msg[], latest: string, secondsA
     const who: Who = ["equipo", "dueno"].includes(json.who) ? json.who : "desconocido";
     const intent: Intent = ["interesado", "pregunta", "no_interesa"].includes(json.intent) ? json.intent : "otro";
     // Un rechazo explícito pesa más que la forma; la velocidad sobrehumana pesa más que la IA.
-    const auto = intent === "no_interesa" ? false : (secondsAfterOurs !== null && secondsAfterOurs < 10) || Boolean(json.auto) || hinted;
+    // Un "no podemos responder ahora" de un automático no es un rechazo.
+    const auto = intent === "no_interesa" && !autoShaped(latest) ? false : (secondsAfterOurs !== null && secondsAfterOurs < 10) || Boolean(json.auto) || hinted;
     return { auto, who: auto ? "desconocido" : who, intent: auto ? "otro" : intent, summary: String(json.summary ?? "").slice(0, 200) };
   } catch {
     return { auto: hinted, who: "desconocido", intent: "otro", summary: "" };
