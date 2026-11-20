@@ -130,7 +130,9 @@ export async function tick(env: Env, date = new Date()): Promise<string> {
     await setSetting(env, "auto", "off");
     return "error";
   }
-  const gapMin = 12 + Math.floor(Math.random() * 14); // 12–25 min entre mensajes
+  // Ajuste "send_gap": minutos entre mensajes en total (todas las líneas), con ±3 min al azar para no parecer robot.
+  const base = Math.min(120, Math.max(5, Number((await setting(env, "send_gap")) || 15)));
+  const gapMin = base - 3 + Math.random() * 6;
   await setSetting(env, "next_send_at", new Date(date.getTime() + gapMin * 60000).toISOString());
   return `enviado ${lead.phone}`;
 }

@@ -29,6 +29,13 @@ export async function api(req: Request, url: URL, env: Env): Promise<Response> {
     await setSetting(env, "send_line", String(b.line || "rotar").slice(0, 64));
     return json({ ok: true });
   }
+  if (path === "/send-gap" && req.method === "POST") {
+    const b: any = await req.json().catch(() => ({}));
+    const g = Math.round(Number(b.gap));
+    if (!(g >= 5 && g <= 120)) return json({ error: "Elige entre 5 y 120 minutos" }, 400);
+    await setSetting(env, "send_gap", String(g));
+    return json({ ok: true, gap: g });
+  }
   if (path === "/send-hours" && req.method === "POST") {
     const h = cleanHours(await req.json().catch(() => null));
     if (!h) return json({ error: "Revisa el horario: la hora de inicio va antes que la de fin y elige al menos un día" }, 400);
@@ -161,6 +168,7 @@ async function state(env: Env) {
       ready: sendReady(env),
       line: (await setting(env, "send_line")) || "rotar",
       hours: await getHours(env),
+      gap: Number((await setting(env, "send_gap")) || 15),
       nextAt: (await setting(env, "next_send_at")) || null,
       lastError: (await setting(env, "last_error")) || null,
     },
