@@ -6,6 +6,8 @@ import { shortName } from "./offers.ts";
 import { notify } from "./alerts.ts";
 import { compileDemoPrompt, splitAction, type Booking } from "./demoPrompt.ts";
 import { complete } from "./llm.ts";
+import { zoneFor } from "./auto.ts";
+import { renderDemoPage } from "./demoPage.ts";
 
 const now = () => new Date().toISOString();
 const DAILY_LIMIT = 60; // mensajes por demo y día: tope de gasto si el link circula
@@ -68,99 +70,158 @@ export async function getDemo(env: Env, slug: string): Promise<Demo | null> {
   return env.DB.prepare("SELECT * FROM demos WHERE slug = ?").bind(slug).first<Demo>();
 }
 
-/** Primera visita: aviso en el CRM (señal de interés). */
+/** Visita a la página (cuenta vistas; los avisos los manda el radar desde el navegador). */
 export async function trackView(env: Env, d: Demo): Promise<void> {
   await env.DB.prepare("UPDATE demos SET views = views + 1, last_view_at = ? WHERE slug = ?").bind(now(), d.slug).run();
-  if (d.views === 0) {
-    await addNote(env, d.lead, "🔥 Abrió la demo por primera vez");
-    await notify(env, d.lead, "demo_abierta", "abrió su demo por primera vez");
+}
+
+// ── Radar en vivo: el recorrido del prospecto dentro de la demo ─────────────
+
+type Session = { id: string; slug: string; device: string | null; started_at: string; last_at: string; messages: number; voice: number; photos: number; resets: number; booked: string | null; transcript: string | null; summary_sent: number };
+
+const sid = (v: unknown) => /^[a-z0-9-]{8,40}$/i.test(String(v ?? "")) ? String(v) : null;
+
+async function session(env: Env, d: Demo, id: string, device?: string | null): Promise<{ s: Session; isNew: boolean }> {
+  const ins = await env.DB.prepare("INSERT OR IGNORE INTO demo_sessions (id, slug, device, started_at, last_at) VALUES (?, ?, ?, ?, ?)")
+    .bind(id, d.slug, device ?? null, now(), now()).run();
+  const s = (await env.DB.prepare("SELECT * FROM demo_sessions WHERE id = ? AND slug = ?").bind(id, d.slug).first<Session>())!;
+  return { s, isNew: (ins.meta?.changes ?? 0) > 0 };
+}
+
+function minutes(from: string, to = now()): string {
+  const m = Math.max(0, Math.round((Date.parse(to) - Date.parse(from)) / 60000));
+  return m < 1 ? "menos de 1 min" : `${m} min`;
+}
+
+/** Eventos que manda la página: abrió, reinició, salió. */
+export async function demoEvent(env: Env, d: Demo, body: any): Promise<void> {
+  const id = sid(body?.session);
+  if (!id || body?.own) return;
+  const type = String(body?.type ?? "");
+  const device = body?.device === "móvil" ? "móvil" : "PC";
+  const { s, isNew } = await session(env, d, id, device);
+  if (type === "abrio" && isNew) {
+    const prev = await env.DB.prepare("SELECT COUNT(*) n FROM demo_sessions WHERE slug = ? AND id != ?").bind(d.slug, id).first<{ n: number }>();
+    const n = (prev?.n ?? 0) + 1;
+    const txt = n === 1 ? `abrió su demo por primera vez (desde ${device})` : `volvió a abrir su demo (visita ${n}, desde ${device})`;
+    await addNote(env, d.lead, `👀 ${txt[0].toUpperCase()}${txt.slice(1)}`);
+    await notify(env, d.lead, "demo_abierta", txt);
+  } else if (type === "reinicio") {
+    await env.DB.prepare("UPDATE demo_sessions SET resets = resets + 1, last_at = ? WHERE id = ?").bind(now(), id).run();
+    if (s.messages > 0) {
+      await addNote(env, d.lead, `🔄 Reinició el chat de la demo después de ${s.messages} mensaje${s.messages === 1 ? "" : "s"} (está probando otro caso)`);
+      await notify(env, d.lead, "demo_chat", `reinició la conversación para probar otro caso`);
+    }
+  } else if (type === "salio") {
+    await summarize(env, d, id);
   }
 }
 
-export async function demoChat(env: Env, d: Demo, history: { role: string; content: string }[], own = false): Promise<{ text: string; booking: Booking | null }> {
+/** Al salir: un resumen de la visita para usar en la llamada. */
+async function summarize(env: Env, d: Demo, id: string): Promise<void> {
+  const s = await env.DB.prepare("SELECT * FROM demo_sessions WHERE id = ?").bind(id).first<Session>();
+  if (!s || s.summary_sent || s.messages === 0) return;
+  await env.DB.prepare("UPDATE demo_sessions SET summary_sent = 1 WHERE id = ?").bind(id).run();
+  const lines: string[] = JSON.parse(s.transcript || "[]");
+  const asked = lines.filter((l) => l.startsWith("Él:")).map((l) => l.slice(4)).slice(0, 6);
+  const extras = [s.voice && `${s.voice} nota${s.voice === 1 ? "" : "s"} de voz`, s.photos && `${s.photos} foto${s.photos === 1 ? "" : "s"}`, s.resets && `reinició ${s.resets} ${s.resets === 1 ? "vez" : "veces"}`].filter(Boolean).join(", ");
+  const head = `salió de la demo tras ${minutes(s.started_at, s.last_at)} y ${s.messages} mensaje${s.messages === 1 ? "" : "s"}${extras ? ` (${extras})` : ""}${s.booked ? `; agendó ${s.booked}` : "; no llegó a agendar"}`;
+  const body = asked.length ? `\nLo que probó: ${asked.map((a) => `“${a.slice(0, 90)}”`).join(" · ")}` : "";
+  await addNote(env, d.lead, `📊 Resumen de la visita: ${head}.${body}`);
+  await notify(env, d.lead, "demo_chat", `${head}.${body}`);
+}
+
+// ── Notas de voz y fotos ──────────────────────────────────────────────────
+
+const b64bytes = (b64: string) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+
+async function transcribe(env: Env, b64: string): Promise<string> {
+  try {
+    const out: any = await env.AI.run("@cf/openai/whisper-large-v3-turbo" as any, { audio: b64 });
+    if (String(out?.text ?? "").trim()) return String(out.text).trim();
+  } catch (e) { console.error("whisper turbo", e); }
+  const out: any = await env.AI.run("@cf/openai/whisper" as any, { audio: [...b64bytes(b64)] });
+  return String(out?.text ?? "").trim();
+}
+
+async function describeImage(env: Env, b64: string, mime: string, caption: string): Promise<string> {
+  const prompt = "Describe en español, en una o dos frases y sin diagnosticar, qué muestra esta foto que un paciente le mandó a su clínica dental por WhatsApp (por ejemplo: dientes, encías, una prótesis, una radiografía, un documento)." + (caption ? ` El paciente escribió: "${caption}".` : "");
+  for (const model of (env.VISION_MODELS || "nvidia/nemotron-3.5-super-vl:free,google/gemma-4-31b-it:free").split(",").map((m) => m.trim()).filter(Boolean)) {
+    try {
+      const r = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST", headers: { Authorization: `Bearer ${env.OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model, max_tokens: 150, messages: [{ role: "user", content: [{ type: "text", text: prompt }, { type: "image_url", image_url: { url: `data:${mime};base64,${b64}` } }] }] }),
+      });
+      if (!r.ok) throw new Error(`${r.status}`);
+      const t = String(((await r.json()) as any)?.choices?.[0]?.message?.content ?? "").trim();
+      if (t) return t;
+    } catch (e) { console.error("vision", model, e); }
+  }
+  return "";
+}
+
+type InMsg = { role: string; content: string; media_type?: string; media_base64?: string; media_mime?: string };
+
+/** Convierte el último mensaje (nota de voz o foto) en texto que el agente entiende. */
+async function readMedia(env: Env, m: InMsg): Promise<{ text: string; kind: "voz" | "foto" | null }> {
+  const caption = String(m.content ?? "").trim();
+  const b64 = String(m.media_base64 ?? "");
+  if (!b64 || b64.length > 6_000_000) return { text: caption, kind: null };
+  if (m.media_type === "audio") {
+    const heard = await transcribe(env, b64).catch(() => "");
+    return { text: heard ? `[Nota de voz] ${heard}` : "[Nota de voz que no se pudo escuchar: pídele con amabilidad que la escriba]", kind: "voz" };
+  }
+  if (m.media_type === "image") {
+    const seen = await describeImage(env, b64, String(m.media_mime || "image/jpeg"), caption);
+    return { text: `[Foto: ${seen || "no se pudo ver bien la imagen"}]${caption ? ` ${caption}` : ""}`, kind: "foto" };
+  }
+  return { text: caption, kind: null };
+}
+
+export async function demoChat(env: Env, d: Demo, history: InMsg[], own = false, sessionId?: unknown): Promise<{ text: string; booking: Booking | null; user_text: string }> {
   const today = new Date().toISOString().slice(0, 10);
   const used = await env.DB.prepare("SELECT COUNT(*) n FROM demo_messages WHERE slug = ? AND day = ?").bind(d.slug, today).first<{ n: number }>();
-  if ((used?.n ?? 0) >= DAILY_LIMIT) return { text: "Por hoy la demo llegó a su límite de mensajes 🙏 Escríbele a Daniel y te la deja activa.", booking: null };
-  const msgs = history.slice(-12).map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: String(m.content ?? "").slice(0, 800) }));
-  const split = splitAction(await complete(env, [{ role: "system", content: compileDemoPrompt(d, TONE) }, ...msgs], 350, { models: env.DEMO_MODEL }));
+  if ((used?.n ?? 0) >= DAILY_LIMIT) return { text: "Por hoy la demo llegó a su límite de mensajes 🙏 Escríbele a Daniel y te la deja activa.", booking: null, user_text: "" };
+  const last = history.at(-1);
+  const media = last?.role === "user" && last.media_base64 ? await readMedia(env, last) : { text: String(last?.content ?? ""), kind: null };
+  const msgs = history.slice(-12).map((m, i, all) => ({
+    role: m.role === "assistant" ? "assistant" : "user",
+    content: (i === all.length - 1 && m.role === "user" ? media.text : String(m.content ?? "")).slice(0, 800),
+  }));
+  const split = splitAction(await complete(env, [{ role: "system", content: compileDemoPrompt({ ...d, tz: zoneFor(d.lead) }, TONE) }, ...msgs], 900, { models: env.DEMO_MODEL }));
   const text = split.text.replace(/\*\*(.+?)\*\*/g, "$1").replace(/__(.+?)__/g, "$1"); // WhatsApp no muestra markdown
   // Un modelo más débil a veces pone la etiqueta antes de tener el nombre: sin nombre real no hay cita.
   const name = String(split.booking?.client_name ?? "").trim();
-  const booking = split.booking && name && !/^<|nombre|cliente|name/i.test(name) ? split.booking : null;
+  let booking = split.booking && name && !/^<|nombre|cliente|name/i.test(name) ? split.booking : null;
+  // Ya agendada en la conversación: una confirmación repetida no es una cita nueva.
+  const already = history.some((m) => m.role === "assistant" && /\[cita registrada: /.test(String(m.content ?? "")));
+  if (booking && already && history.some((m) => m.role === "assistant" && String(m.content ?? "").includes(`[cita registrada: ${name}`))) booking = null;
   await env.DB.prepare("INSERT INTO demo_messages (slug, day, created_at) VALUES (?, ?, ?)").bind(d.slug, today, now()).run();
-  if (!own) {
+  const id = sid(sessionId);
+  if (!own && id) {
+    const { s } = await session(env, d, id);
+    const lines: string[] = JSON.parse(s.transcript || "[]");
+    lines.push(`Él: ${media.text.slice(0, 200)}`, `IA: ${text.slice(0, 200)}`);
+    const what = booking ? [booking.client_name, booking.item_or_service, booking.datetime_or_details].filter(Boolean).join(" · ") : null;
+    await env.DB.prepare("UPDATE demo_sessions SET messages = messages + 1, voice = voice + ?, photos = photos + ?, last_at = ?, transcript = ?, booked = COALESCE(?, booked) WHERE id = ?")
+      .bind(media.kind === "voz" ? 1 : 0, media.kind === "foto" ? 1 : 0, now(), JSON.stringify(lines.slice(-24)), what, id).run();
     await env.DB.prepare("UPDATE demos SET messages = messages + 1 WHERE slug = ?").bind(d.slug).run();
-    if (d.messages === 0) {
-      await addNote(env, d.lead, "💬 Empezó a probar la demo");
-      await notify(env, d.lead, "demo_chat", `empezó a hablar con el agente: “${String(history.at(-1)?.content ?? "").slice(0, 120)}”`);
+    if (s.messages === 0) {
+      await addNote(env, d.lead, `💬 Empezó a chatear con el agente: “${media.text.slice(0, 160)}”`);
+      await notify(env, d.lead, "demo_chat", `empezó a chatear con el agente. Primer mensaje: “${media.text.slice(0, 140)}”`);
+    } else if (media.kind) {
+      await addNote(env, d.lead, media.kind === "voz" ? `🎤 Mandó una nota de voz: ${media.text.slice(14, 180)}` : `📸 Mandó una foto: ${media.text.slice(0, 180)}`);
     }
     if (booking) {
       await env.DB.prepare("UPDATE demos SET bookings = bookings + 1 WHERE slug = ?").bind(d.slug).run();
-      const what = [booking.item_or_service, booking.datetime_or_details].filter(Boolean).join(" · ");
-      await addNote(env, d.lead, `📅 Agendó una cita de prueba en la demo${what ? `: ${what}` : ""}`);
-      await notify(env, d.lead, "cita", `llegó a la agenda en la demo${what ? ` (${what})` : ""}`);
+      await addNote(env, d.lead, `📅 Agendó una cita de prueba en la demo: ${what}`);
+      await notify(env, d.lead, "cita", `cerró una cita en la demo (${what}) tras ${s.messages + 1} mensajes`);
     }
   }
-  return { text, booking };
+  return { text, booking, user_text: media.text };
 }
-
-const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
 /** Página pública de la demo (sin contraseña). */
 export function renderDemo(d: Demo, contact: string | null): string {
-  const initials = d.business.split(/\s+/).filter((w) => /^[A-Za-zÁÉÍÓÚÑ0-9]/.test(w)).slice(0, 2).map((w) => w[0]).join("").toUpperCase();
-  const chips = ["Hola, ¿tienen citas esta semana?", "¿Qué servicios manejan?", "¿Cuál es su horario?", "Quiero agendar una valoración"];
-  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>${esc(d.business)} · Asistente con IA</title><meta name="robots" content="noindex">
-<meta property="og:title" content="${esc(d.business)} · así contestaría tu asistente con IA"><meta property="og:description" content="Demo creada por Hunter AI para ${esc(d.business)}">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<style>
-:root{--bg:#0b141a;--panel:#111b21;--in:#202c33;--out:#005c4b;--fg:#e9edef;--mut:#8696a0;--a:#ff6a00}
-*{box-sizing:border-box;margin:0}html,body{height:100%}
-body{background:#050505;color:var(--fg);font:15px/1.45 Inter,system-ui,sans-serif;display:flex;justify-content:center}
-.app{width:100%;max-width:480px;height:100dvh;display:flex;flex-direction:column;background:var(--bg);background-image:radial-gradient(rgba(255,255,255,.025) 1px,transparent 1px);background-size:18px 18px;border-left:1px solid #1d272d;border-right:1px solid #1d272d}
-header{display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--panel);border-bottom:1px solid #1d272d}
-.av{width:42px;height:42px;border-radius:50%;background:linear-gradient(135deg,#ffb27a,var(--a));display:grid;place-items:center;font-weight:700;color:#1a0b00;flex:none}
-header b{display:block;font-size:16px}header small{color:#25d366;font-size:12.5px}
-.banner{margin:12px auto 4px;max-width:88%;text-align:center;font-size:12px;color:#ffd7b8;background:rgba(255,106,0,.12);border:1px solid rgba(255,106,0,.3);border-radius:10px;padding:6px 10px}
-#log{flex:1;overflow-y:auto;padding:10px 14px 14px;display:flex;flex-direction:column;gap:6px}
-.m{max-width:82%;padding:7px 10px 18px;border-radius:10px;position:relative;white-space:pre-wrap;word-wrap:break-word;font-size:14.5px;animation:pop .18s ease-out}
-.m time{position:absolute;right:8px;bottom:3px;font-size:10.5px;color:rgba(233,237,239,.6)}
-.in{align-self:flex-start;background:var(--in);border-top-left-radius:2px}.out{align-self:flex-end;background:var(--out);border-top-right-radius:2px}
-.typing{align-self:flex-start;background:var(--in);border-radius:10px;padding:10px 14px;display:flex;gap:4px}
-.typing i{width:7px;height:7px;border-radius:50%;background:var(--mut);animation:b 1s infinite}.typing i:nth-child(2){animation-delay:.15s}.typing i:nth-child(3){animation-delay:.3s}
-@keyframes b{0%,60%,100%{opacity:.3;transform:translateY(0)}30%{opacity:1;transform:translateY(-3px)}}
-@keyframes pop{from{opacity:0;transform:translateY(6px)}}
-.chips{display:flex;gap:6px;overflow-x:auto;padding:6px 12px;scrollbar-width:none}
-.chips button{flex:none;background:#1a252c;color:var(--fg);border:1px solid #2a3942;border-radius:999px;padding:6px 12px;font:inherit;font-size:13px;cursor:pointer}
-form{display:flex;gap:8px;padding:8px 10px calc(8px + env(safe-area-inset-bottom));background:var(--panel)}
-input{flex:1;background:#2a3942;border:0;border-radius:22px;padding:11px 16px;color:var(--fg);font:inherit;outline:none}
-form button{width:44px;height:44px;border-radius:50%;border:0;background:#00a884;color:#fff;font-size:18px;cursor:pointer}
-.bk{align-self:center;max-width:88%;margin:8px 0;padding:10px 14px;border-radius:12px;background:rgba(37,211,102,.1);border:1px solid rgba(37,211,102,.4);display:flex;flex-direction:column;gap:3px;text-align:center;animation:pop .25s ease-out}
-.bk b{color:#25d366}.bk span{font-size:13.5px}.bk small{color:var(--mut);font-size:12px}
-.cta{display:block;text-align:center;font-size:12.5px;color:var(--mut);padding:8px 12px;background:#0d1418;border-top:1px solid #1d272d}
-.cta a{color:var(--a);font-weight:600;text-decoration:none}
-</style></head><body><div class="app">
-<header><div class="av">${esc(initials || "IA")}</div><div><b>${esc(d.business)}</b><small>en línea · responde al instante</small></div></header>
-<div id="log"><div class="banner">✨ Demo creada por Hunter AI para ${esc(d.business)}. Escribe como si fueras un paciente.</div></div>
-<div class="chips" id="chips">${chips.map((c) => `<button type="button">${esc(c)}</button>`).join("")}</div>
-<form id="f"><input id="t" placeholder="Escribe un mensaje" autocomplete="off" maxlength="600"><button aria-label="Enviar">➤</button></form>
-<div class="cta">¿Lo quieres así en tu WhatsApp? ${contact ? `<a href="https://wa.me/${esc(contact)}?text=${encodeURIComponent(`Hola Daniel, vi la demo de ${d.business}`)}">Habla con Daniel</a>` : "Respóndele a Daniel por WhatsApp"}</div>
-</div><script>
-const log=document.getElementById("log"),t=document.getElementById("t"),hist=[];
-const hm=()=>new Date().toLocaleTimeString([], {hour:"numeric",minute:"2-digit"});
-function add(role,text){const d=document.createElement("div");d.className="m "+(role==="user"?"out":"in");d.textContent=text;const tm=document.createElement("time");tm.textContent=hm();d.appendChild(tm);log.appendChild(d);log.scrollTop=log.scrollHeight;hist.push({role,content:text})}
-async function send(text){
-  text=text.trim();if(!text)return;add("user",text);t.value="";document.getElementById("chips").style.display="none";
-  const ty=document.createElement("div");ty.className="typing";ty.innerHTML="<i></i><i></i><i></i>";log.appendChild(ty);log.scrollTop=log.scrollHeight;
-  try{const r=await fetch(location.pathname+"/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({messages:hist,own:new URLSearchParams(location.search).has("yo")})});const d=await r.json();ty.remove();add("assistant",d.text||"Perdón, tuve un problema. ¿Me repites?");if(d.booking)booked(d.booking)}
-  catch(e){ty.remove();add("assistant","Perdón, se me fue la señal. ¿Me lo repites?")}
-}
-function booked(b){const c=document.createElement("div");c.className="bk";c.innerHTML="<b>✅ "+esc(b.action_type||"Cita agendada")+"</b><span>"+esc([b.client_name,b.item_or_service,b.datetime_or_details].filter(Boolean).join(" · "))+"</span><small>Así quedaría registrada en tu agenda, sin que nadie del equipo tocara el teléfono.</small>";log.appendChild(c);log.scrollTop=log.scrollHeight}
-function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c])}
-document.getElementById("f").onsubmit=e=>{e.preventDefault();send(t.value)};
-document.querySelectorAll("#chips button").forEach(b=>b.onclick=()=>send(b.textContent));
-const BIZ=${JSON.stringify(d.business).replace(/</g, "\\u003c")};
-setTimeout(()=>add("assistant","¡Hola! 👋 Gracias por escribir a "+BIZ+". ¿En qué te puedo ayudar hoy?"),500);
-</script></body></html>`;
+  return renderDemoPage(d, contact);
 }

@@ -35,5 +35,7 @@ test("demo: separa la etiqueta de cita y detecta giro", () => {
   const p = compileDemoPrompt({ business: "Distrito Sonrisa", category: "Dentista", city: "Getafe", rating: 4.8, services: null, hours: null, knowledge: null }, "TONO");
   assert.match(p, /<agenda>/);
   assert.match(p, /Dudas médicas/);
+  assert.match(p, /nombre completo/i);
+  assert.match(p, /Agenda de evaluaciones/);
   assert.ok(!p.includes("null"));
 });
