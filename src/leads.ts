@@ -183,10 +183,11 @@ export function cleanOpener(raw: string): string {
 }
 
 export function fallbackOpener(lead: any, variant: string): string {
-  const name = String(lead.name ?? "").split(/[|·-]/)[0].trim();
-  return variant === "B"
-    ? `Hola, ¿hablo con ${name}? Soy Daniel, de Hunter AI. Los encontré en Google y les preparé una idea: un asistente que contesta a sus clientes por WhatsApp en segundos, a cualquier hora. ¿Te la muestro?`
-    : `Hola, ¿hablo con ${name}? Soy Daniel, de Hunter AI. Los encontré en Google y tengo una pregunta rápida: ¿quién les contesta el WhatsApp de noche y los fines de semana?`;
+  return buildOpener(
+    { name: String(lead.name ?? "") },
+    { niche: String(lead.niche ?? ""), result: "", timeframe: "", pain: "", question_a: null, cta_b: null },
+    variant,
+  );
 }
 
 export async function markLead(env: Env, phone: string, action: "enviado" | "descartado" | "no_contactar", opener?: string): Promise<void> {

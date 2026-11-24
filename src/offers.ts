@@ -3,7 +3,7 @@
 import type { Env } from "./crm.ts";
 import { TONE } from "./brain.ts";
 
-export const OPENER_V = 4; // versión de la fórmula: las aperturas más viejas se reescriben
+export const OPENER_V = 5; // versión de las aperturas A/B: las más viejas se reescriben
 
 export type Offer = {
   niche_key: string; niche: string; result: string; timeframe: string; pain: string;
@@ -24,21 +24,30 @@ export function shortName(name: string): string {
   return s.length > 48 ? s.slice(0, 48).replace(/\s+\S*$/, "") : s;
 }
 
-export const DEFAULT_A = "¿Hoy quién les contesta el WhatsApp cuando están llenos o fuera de horario?";
-export const defaultB = (short: string) => `¿Te muestro en 2 minutos cómo se vería en ${short}?`;
+const HEALTH_RE = /dent|odont|cl[ií]nic|m[eé]dic|salud|doctor|est[eé]tic|fisiot|psicol|veterin/i;
 
-export const DEFAULT_INTRO = "Hola, ¿hablo con {negocio}? Soy Daniel y ayudo a {nicho} a {resultado} en {plazo} sin {dolor}.";
+export const DEFAULT_A = "¿Con quién de dirección podría compartirle el link para que la pruebe en 1 minuto?";
+export const defaultB = (_short?: string) => "¿Les sirve si se los mando por aquí para que lo prueben sin compromiso?";
+
+export const DEFAULT_INTRO = "Hola, ¿qué tal? Vi a {negocio} en Google y armé una demo rápida de cómo un asistente de IA respondería y agendaría sus citas por WhatsApp en menos de 10 segundos, incluso de noche o fines de semana.";
 
 export function buildOpener(lead: { name: string }, o: Pick<Offer, "niche" | "result" | "timeframe" | "pain" | "question_a" | "cta_b"> & { intro?: string | null }, variant: string): string {
   const short = shortName(lead.name);
-  const pitch = (o.intro?.trim() || DEFAULT_INTRO)
-    .replaceAll("{negocio}", short)
-    .replaceAll("{nicho}", o.niche)
-    .replaceAll("{resultado}", o.result.replace(/^a\s+/i, ""))
-    .replaceAll("{plazo}", o.timeframe.replace(/^en\s+/i, ""))
-    .replaceAll("{dolor}", o.pain.replace(/^sin\s+/i, ""));
-  const close = (variant === "B" ? (o.cta_b || defaultB(short)) : (o.question_a || DEFAULT_A)).replaceAll("{negocio}", short);
-  return `${pitch}\n\n${close}`;
+  const close = (variant === "B" ? (o.cta_b?.trim() || defaultB(short)) : (o.question_a?.trim() || DEFAULT_A)).replaceAll("{negocio}", short);
+  if (o.intro?.trim()) {
+    const pitch = o.intro.trim()
+      .replaceAll("{negocio}", short)
+      .replaceAll("{nicho}", o.niche)
+      .replaceAll("{resultado}", o.result.replace(/^a\s+/i, ""))
+      .replaceAll("{plazo}", o.timeframe.replace(/^en\s+/i, ""))
+      .replaceAll("{dolor}", o.pain.replace(/^sin\s+/i, ""));
+    return `${pitch}\n\n${close}`;
+  }
+  if (variant === "B") {
+    const audience = HEALTH_RE.test(`${o.niche ?? ""} ${lead.name ?? ""}`) ? "pacientes" : "clientes";
+    return `Hola, buenas tardes. ¿Este es el WhatsApp de ${short}?\n\nLes armé un prototipo corto de cómo responder y agendar ${audience} automáticamente fuera de horario sin saturar a su equipo. ${close}`;
+  }
+  return `Hola, ¿qué tal? Vi a ${short} en Google y armé una demo rápida de cómo un asistente de IA respondería y agendaría sus citas por WhatsApp en menos de 10 segundos, incluso de noche o fines de semana.\n\n${close}`;
 }
 
 export async function listOffers(env: Env): Promise<Offer[]> {

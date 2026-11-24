@@ -36,8 +36,10 @@ test("horario local del negocio", () => {
 test("día en Bogotá y apertura de respaldo honesta", () => {
   assert.equal(today(new Date("2026-11-11T03:00:00Z")), "2026-11-10");
   const t = fallbackOpener({ name: "Clínica Dental Sonrisa | Dra. X" }, "A");
-  assert.match(t, /Clínica Dental Sonrisa\?/);
-  assert.match(t, /Hunter AI/);
+  assert.match(t, /Clínica Dental Sonrisa/);
+  assert.match(t, /demo rápida/);
+  const tb = fallbackOpener({ name: "Clínica Dental Sonrisa | Dra. X" }, "B");
+  assert.match(tb, /¿Este es el WhatsApp de Clínica Dental Sonrisa\?/);
 });
 
 import { cleanOpener } from "../src/leads.ts";
@@ -60,8 +62,8 @@ test("the sending hours can be moved from the panel", async () => {
 
 test("the greeting of the opener can be written freely per niche", async () => {
   const { buildOpener } = await import("../src/offers.ts");
-  const o = { niche: "clínicas dentales", result: "tener más citas", timeframe: "60 días", pain: "otra recepcionista", question_a: "¿Quién les contesta?", cta_b: null };
-  assert.match(buildOpener({ name: "Clínica Sol" }, o, "A"), /^Hola, ¿hablo con Clínica Sol\? Soy Daniel y ayudo a clínicas dentales a tener más citas en 60 días sin otra recepcionista\./);
+  const o = { niche: "clínicas dentales", result: "tener más citas", timeframe: "60 días", pain: "perder pacientes", question_a: "¿Quién les contesta?", cta_b: null };
+  assert.match(buildOpener({ name: "Clínica Sol" }, o, "A"), /^Hola, ¿qué tal\? Vi a Clínica Sol en Google/);
   const free = buildOpener({ name: "Clínica Sol" }, { ...o, intro: "Buenas, {negocio} 👋 Vi sus reseñas en Google." }, "A");
   assert.equal(free, "Buenas, Clínica Sol 👋 Vi sus reseñas en Google.\n\n¿Quién les contesta?");
 });
