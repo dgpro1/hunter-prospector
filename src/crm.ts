@@ -17,6 +17,7 @@ export type Env = {
   VAPID_JWK?: string;
   PUBLIC_URL: string;
   SITE_MODEL?: string;            // modelo de OpenRouter para escribir las webs demo (si no, OPENROUTER_MODEL)
+  DEMO_FALLBACK_MODEL?: string;  // modelo de Workers AI si OpenRouter falla en la demo (si no, CLASSIFY_MODEL)
   SOCRATA_APP_TOKEN?: string;
   GEMINI_API_KEY?: string;        // clave gratis de Google AI Studio para escribir las webs demo
   GEMINI_API_KEY_2?: string;

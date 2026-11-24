@@ -76,18 +76,44 @@ export async function trackView(env: Env, d: Demo): Promise<void> {
   }
 }
 
+/** Último fallo del modelo de la demo, para verlo sin logs (settings.demo_last_error). */
+async function logDemoError(env: Env, err: string): Promise<void> {
+  await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('demo_last_error', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+    .bind(`${now()} ${err}`.slice(0, 500)).run().catch(() => {});
+}
+
+/**
+ * Respuesta del agente de la demo: OpenRouter primero y, si falla (sin saldo, modelo caído…),
+ * Workers AI, para que el link que recibe el prospecto nunca se quede mudo.
+ */
+async function demoReply(env: Env, system: string, msgs: { role: string; content: string }[]): Promise<string> {
+  try {
+    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${env.OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: env.OPENROUTER_MODEL, max_tokens: 350, messages: [{ role: "system", content: system }, ...msgs] }),
+    });
+    if (!res.ok) throw new Error(`OpenRouter ${res.status}: ${(await res.text()).slice(0, 300)}`);
+    const out = String(((await res.json()) as any)?.choices?.[0]?.message?.content ?? "").trim();
+    if (!out) throw new Error("OpenRouter: respuesta vacía");
+    return out;
+  } catch (e) {
+    await logDemoError(env, String((e as Error)?.message ?? e));
+  }
+  const out: any = await env.AI.run((env.DEMO_FALLBACK_MODEL || env.CLASSIFY_MODEL) as any, {
+    messages: [{ role: "system", content: system }, ...msgs.filter((m) => m.content)], max_tokens: 350,
+  });
+  const text = String(out?.response ?? "").trim();
+  if (!text) throw new Error("Workers AI: respuesta vacía");
+  return text;
+}
+
 export async function demoChat(env: Env, d: Demo, history: { role: string; content: string }[], own = false): Promise<{ text: string; booking: Booking | null }> {
   const today = new Date().toISOString().slice(0, 10);
   const used = await env.DB.prepare("SELECT COUNT(*) n FROM demo_messages WHERE slug = ? AND day = ?").bind(d.slug, today).first<{ n: number }>();
   if ((used?.n ?? 0) >= DAILY_LIMIT) return { text: "Por hoy la demo llegó a su límite de mensajes 🙏 Escríbele a Daniel y te la deja activa.", booking: null };
   const msgs = history.slice(-12).map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: String(m.content ?? "").slice(0, 800) }));
-  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${env.OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: env.OPENROUTER_MODEL, max_tokens: 350, messages: [{ role: "system", content: compileDemoPrompt(d, TONE) }, ...msgs] }),
-  });
-  if (!res.ok) throw new Error(`OpenRouter → ${res.status}`);
-  const { text, booking } = splitAction(String(((await res.json()) as any)?.choices?.[0]?.message?.content ?? ""));
+  const { text, booking } = splitAction(await demoReply(env, compileDemoPrompt(d, TONE), msgs));
   await env.DB.prepare("INSERT INTO demo_messages (slug, day, created_at) VALUES (?, ?, ?)").bind(d.slug, today, now()).run();
   if (!own) {
     await env.DB.prepare("UPDATE demos SET messages = messages + 1 WHERE slug = ?").bind(d.slug).run();

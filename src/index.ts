@@ -462,7 +462,9 @@ async function demoRoute(req: Request, env: Env, ctx: ExecutionContext, slug: st
     const body: any = await req.json().catch(() => ({}));
     try {
       return Response.json(await demoChat(env, d, Array.isArray(body?.messages) ? body.messages : [], Boolean(body?.own)));
-    } catch {
+    } catch (e) {
+      await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('demo_last_error', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+        .bind(`${new Date().toISOString()} total: ${String((e as Error)?.message ?? e)}`.slice(0, 500)).run().catch(() => {});
       return Response.json({ text: "Perdón, tuve un problema técnico. ¿Me lo repites en un momento?" });
     }
   }
