@@ -20,6 +20,7 @@ import { sendErrorText, sendFirst, sendReady, setSetting, setting, tick } from "
 import type { Msg } from "./timer.ts";
 import { agentCron, agentMode, agentTurn, decide, openRouter, sendDraft, callSlots, type AgentStage } from "./agent.ts";
 import { humanDuration } from "./timer.ts";
+import { complete } from "./llm.ts";
 
 const now = () => new Date().toISOString();
 const WEBS_CRON = "*/3 * * * *";
@@ -438,20 +439,15 @@ async function fakeBusiness(req: Request, env: Env): Promise<Response> {
   const body: any = await req.json().catch(() => null);
   const history: Msg[] = Array.isArray(body?.messages) ? body.messages.slice(-20) : [];
   const persona = PERSONAS[String(body?.persona)] ?? PERSONAS.recepcion;
-  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${env.OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: env.OPENROUTER_MODEL, max_tokens: 150,
-      messages: [
-        { role: "system", content: `${persona} Te escribe por WhatsApp alguien que no conoces. Responde como por WhatsApp: una o dos frases, sin markdown. ${TONE} Devuelve solo tu mensaje.` },
-        ...history.map((m) => ({ role: m.role === "user" ? "assistant" : "user", content: m.content })),
-      ],
-    }),
-  });
-  if (!res.ok) return Response.json({ error: `OpenRouter → ${res.status}: ${(await res.text()).slice(0, 200)}` }, { status: 502 });
-  const data: any = await res.json();
-  return Response.json({ text: String(data?.choices?.[0]?.message?.content ?? "").trim() });
+  try {
+    const text = await complete(env, [
+      { role: "system", content: `${persona} Te escribe por WhatsApp alguien que no conoces. Responde como por WhatsApp: una o dos frases, sin markdown. ${TONE} Devuelve solo tu mensaje.` },
+      ...history.map((m) => ({ role: m.role === "user" ? "assistant" : "user", content: m.content })),
+    ], 150);
+    return Response.json({ text });
+  } catch (e) {
+    return Response.json({ error: String((e as Error)?.message ?? e) }, { status: 502 });
+  }
 }
 
 /** Demo pública: sin contraseña, con tope diario de mensajes. */
@@ -462,7 +458,9 @@ async function demoRoute(req: Request, env: Env, ctx: ExecutionContext, slug: st
     const body: any = await req.json().catch(() => ({}));
     try {
       return Response.json(await demoChat(env, d, Array.isArray(body?.messages) ? body.messages : [], Boolean(body?.own)));
-    } catch {
+    } catch (e) {
+      await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('llm_last_error', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+        .bind(`${new Date().toISOString()} total: ${String((e as Error)?.message ?? e)}`.slice(0, 500)).run().catch(() => {});
       return Response.json({ text: "Perdón, tuve un problema técnico. ¿Me lo repites en un momento?" });
     }
   }

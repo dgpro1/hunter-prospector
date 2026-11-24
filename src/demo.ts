@@ -5,6 +5,7 @@ import { addNote } from "./store.ts";
 import { shortName } from "./offers.ts";
 import { notify } from "./alerts.ts";
 import { compileDemoPrompt, splitAction, type Booking } from "./demoPrompt.ts";
+import { complete } from "./llm.ts";
 
 const now = () => new Date().toISOString();
 const DAILY_LIMIT = 60; // mensajes por demo y día: tope de gasto si el link circula
@@ -81,13 +82,11 @@ export async function demoChat(env: Env, d: Demo, history: { role: string; conte
   const used = await env.DB.prepare("SELECT COUNT(*) n FROM demo_messages WHERE slug = ? AND day = ?").bind(d.slug, today).first<{ n: number }>();
   if ((used?.n ?? 0) >= DAILY_LIMIT) return { text: "Por hoy la demo llegó a su límite de mensajes 🙏 Escríbele a Daniel y te la deja activa.", booking: null };
   const msgs = history.slice(-12).map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: String(m.content ?? "").slice(0, 800) }));
-  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${env.OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: env.OPENROUTER_MODEL, max_tokens: 350, messages: [{ role: "system", content: compileDemoPrompt(d, TONE) }, ...msgs] }),
-  });
-  if (!res.ok) throw new Error(`OpenRouter → ${res.status}`);
-  const { text, booking } = splitAction(String(((await res.json()) as any)?.choices?.[0]?.message?.content ?? ""));
+  const split = splitAction(await complete(env, [{ role: "system", content: compileDemoPrompt(d, TONE) }, ...msgs], 350, { models: env.DEMO_MODEL }));
+  const text = split.text.replace(/\*\*(.+?)\*\*/g, "$1").replace(/__(.+?)__/g, "$1"); // WhatsApp no muestra markdown
+  // Un modelo más débil a veces pone la etiqueta antes de tener el nombre: sin nombre real no hay cita.
+  const name = String(split.booking?.client_name ?? "").trim();
+  const booking = split.booking && name && !/^<|nombre|cliente|name/i.test(name) ? split.booking : null;
   await env.DB.prepare("INSERT INTO demo_messages (slug, day, created_at) VALUES (?, ?, ?)").bind(d.slug, today, now()).run();
   if (!own) {
     await env.DB.prepare("UPDATE demos SET messages = messages + 1 WHERE slug = ?").bind(d.slug).run();

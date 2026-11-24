@@ -22,6 +22,9 @@ CRM_BASE_URL = "https://app.hunterai.site"
 CRM_CLIENT_ID = ""
 # Modelo de OpenRouter para redactar los mensajes
 OPENROUTER_MODEL = "anthropic/claude-sonnet-4.5"
+# Modelos para todo el texto (demo, Cerrador, borradores, aperturas), en orden y gratis;
+# si fallan todos, Workers AI (CLASSIFY_MODEL). DEMO_MODEL opcional solo para la demo.
+LLM_MODELS = "nvidia/nemotron-3-ultra-550b-a55b:free,google/gemma-4-31b-it:free"
 # Modelo de Workers AI para clasificar
 CLASSIFY_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
 # Opcional: JSON con los ids de etapa del CRM, ej. {"respondio":"uuid","perdido":"uuid"}

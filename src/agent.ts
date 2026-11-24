@@ -8,6 +8,7 @@ import { cleanHours, inWindow, setting, zoneFor, type Hours } from "./auto.ts";
 import { addNote, setStage } from "./store.ts";
 import { notify } from "./alerts.ts";
 import { createDemo } from "./demo.ts";
+import { complete } from "./llm.ts";
 
 export type Mode = "apagado" | "sombra" | "auto";
 export type AgentStage = "conversando" | "demo_enviada" | "llamada_propuesta" | "agendada" | "traspaso" | "dormido" | "cerrado";
@@ -139,15 +140,7 @@ export async function callSlots(env: Env, at = new Date()): Promise<{ slots: str
 
 export type Llm = (system: string, convo: { role: string; content: string }[]) => Promise<string>;
 
-export const openRouter = (env: Env): Llm => async (system, convo) => {
-  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${env.OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: env.OPENROUTER_MODEL, max_tokens: 500, messages: [{ role: "system", content: system }, ...convo] }),
-  });
-  if (!res.ok) throw new Error(`OpenRouter → ${res.status}`);
-  return String(((await res.json()) as any)?.choices?.[0]?.message?.content ?? "");
-};
+export const openRouter = (env: Env): Llm => (system, convo) => complete(env, [{ role: "system", content: system }, ...convo], 500);
 
 export type Context = {
   business: string; phone: string; stage: AgentStage; demoUrl: string | null; demoViewed: boolean;

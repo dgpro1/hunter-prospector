@@ -3,6 +3,7 @@ import type { Env } from "./crm.ts";
 import { addNote, setStage } from "./store.ts";
 import { toneFor } from "./brain.ts";
 import { buildOpener, offerFor, OPENER_V } from "./offers.ts";
+import { complete } from "./llm.ts";
 
 export type Lead = {
   phone: string; name: string; niche: string | null; city: string | null; web: string | null;
@@ -156,14 +157,7 @@ export async function writeOpener(env: Env, lead: any, variant: string): Promise
     `Negocio: ${lead.name}`, lead.category && `Categoría: ${lead.category}`, lead.city && `Ciudad: ${lead.city}`,
     lead.rating && `Rating en Google: ${lead.rating}`, lead.web && `Web: ${lead.web}`,
   ].filter(Boolean).join("\n");
-  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${env.OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: env.OPENROUTER_MODEL, max_tokens: 200, messages: [{ role: "system", content: system }, { role: "user", content: about }] }),
-  });
-  if (!res.ok) throw new Error(`OpenRouter → ${res.status}`);
-  const data: any = await res.json();
-  const text = cleanOpener(String(data?.choices?.[0]?.message?.content ?? ""));
+  const text = cleanOpener(await complete(env, [{ role: "system", content: system }, { role: "user", content: about }], 200));
   if (!text) throw new Error("vacío");
   return text;
 }

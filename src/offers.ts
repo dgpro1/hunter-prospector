@@ -2,6 +2,7 @@
 // La apertura se arma con esta fórmula; cada nicho tiene sus variables, editables en el panel.
 import type { Env } from "./crm.ts";
 import { TONE } from "./brain.ts";
+import { complete } from "./llm.ts";
 
 export const OPENER_V = 5; // versión de las aperturas A/B: las más viejas se reescriben
 
@@ -86,12 +87,7 @@ export async function offerFor(env: Env, niche: string | null): Promise<Offer> {
 }
 
 export async function suggestOffer(env: Env, niche: string): Promise<{ result: string; timeframe: string; pain: string; question_a: string; cta_b: string }> {
-  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${env.OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: env.OPENROUTER_MODEL, max_tokens: 350,
-      messages: [{
+  const raw = await complete(env, [{
         role: "system",
         content: [
           "Completa la fórmula de oferta: 'Ayudo a {nicho} a {resultado} en {plazo} sin {lo que más odian}'.",
@@ -101,11 +97,7 @@ export async function suggestOffer(env: Env, niche: string): Promise<{ result: s
           TONE,
           'Responde SOLO JSON: {"result":"...","timeframe":"...","pain":"...","question_a":"...","cta_b":"..."}',
         ].join("\n"),
-      }, { role: "user", content: `Nicho: ${niche}` }],
-    }),
-  });
-  if (!res.ok) throw new Error(`OpenRouter → ${res.status}`);
-  const raw = String(((await res.json()) as any)?.choices?.[0]?.message?.content ?? "");
+      }, { role: "user", content: `Nicho: ${niche}` }], 350);
   const j = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1));
   return { result: String(j.result ?? ""), timeframe: String(j.timeframe ?? ""), pain: String(j.pain ?? ""), question_a: String(j.question_a ?? ""), cta_b: String(j.cta_b ?? "") };
 }
