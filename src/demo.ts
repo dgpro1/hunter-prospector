@@ -87,18 +87,22 @@ async function logDemoError(env: Env, err: string): Promise<void> {
  * Workers AI, para que el link que recibe el prospecto nunca se quede mudo.
  */
 async function demoReply(env: Env, system: string, msgs: { role: string; content: string }[]): Promise<string> {
-  try {
-    const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${env.OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: env.OPENROUTER_MODEL, max_tokens: 350, messages: [{ role: "system", content: system }, ...msgs] }),
-    });
-    if (!res.ok) throw new Error(`OpenRouter ${res.status}: ${(await res.text()).slice(0, 300)}`);
-    const out = String(((await res.json()) as any)?.choices?.[0]?.message?.content ?? "").trim();
-    if (!out) throw new Error("OpenRouter: respuesta vacía");
-    return out;
-  } catch (e) {
-    await logDemoError(env, String((e as Error)?.message ?? e));
+  // DEMO_MODEL: lista separada por comas (p. ej. modelos :free); si no, OPENROUTER_MODEL.
+  const models = (env.DEMO_MODEL || env.OPENROUTER_MODEL).split(",").map((m) => m.trim()).filter(Boolean);
+  for (const model of models) {
+    try {
+      const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${env.OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model, max_tokens: 350, messages: [{ role: "system", content: system }, ...msgs] }),
+      });
+      if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 300)}`);
+      const out = String(((await res.json()) as any)?.choices?.[0]?.message?.content ?? "").trim();
+      if (!out) throw new Error("respuesta vacía");
+      return out;
+    } catch (e) {
+      await logDemoError(env, `${model} → ${String((e as Error)?.message ?? e)}`);
+    }
   }
   const out: any = await env.AI.run((env.DEMO_FALLBACK_MODEL || env.CLASSIFY_MODEL) as any, {
     messages: [{ role: "system", content: system }, ...msgs.filter((m) => m.content)], max_tokens: 350,
@@ -114,7 +118,7 @@ export async function demoChat(env: Env, d: Demo, history: { role: string; conte
   if ((used?.n ?? 0) >= DAILY_LIMIT) return { text: "Por hoy la demo llegó a su límite de mensajes 🙏 Escríbele a Daniel y te la deja activa.", booking: null };
   const msgs = history.slice(-12).map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: String(m.content ?? "").slice(0, 800) }));
   const split = splitAction(await demoReply(env, compileDemoPrompt(d, TONE), msgs));
-  const text = split.text;
+  const text = split.text.replace(/\*\*(.+?)\*\*/g, "$1").replace(/__(.+?)__/g, "$1"); // WhatsApp no muestra markdown
   // Un modelo más débil a veces pone la etiqueta antes de tener el nombre: sin nombre real no hay cita.
   const name = String(split.booking?.client_name ?? "").trim();
   const booking = split.booking && name && !/^<|nombre|cliente|name/i.test(name) ? split.booking : null;
