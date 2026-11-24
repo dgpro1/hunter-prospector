@@ -113,7 +113,11 @@ export async function demoChat(env: Env, d: Demo, history: { role: string; conte
   const used = await env.DB.prepare("SELECT COUNT(*) n FROM demo_messages WHERE slug = ? AND day = ?").bind(d.slug, today).first<{ n: number }>();
   if ((used?.n ?? 0) >= DAILY_LIMIT) return { text: "Por hoy la demo llegó a su límite de mensajes 🙏 Escríbele a Daniel y te la deja activa.", booking: null };
   const msgs = history.slice(-12).map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: String(m.content ?? "").slice(0, 800) }));
-  const { text, booking } = splitAction(await demoReply(env, compileDemoPrompt(d, TONE), msgs));
+  const split = splitAction(await demoReply(env, compileDemoPrompt(d, TONE), msgs));
+  const text = split.text;
+  // Un modelo más débil a veces pone la etiqueta antes de tener el nombre: sin nombre real no hay cita.
+  const name = String(split.booking?.client_name ?? "").trim();
+  const booking = split.booking && name && !/^<|nombre|cliente|name/i.test(name) ? split.booking : null;
   await env.DB.prepare("INSERT INTO demo_messages (slug, day, created_at) VALUES (?, ?, ?)").bind(d.slug, today, now()).run();
   if (!own) {
     await env.DB.prepare("UPDATE demos SET messages = messages + 1 WHERE slug = ?").bind(d.slug).run();
