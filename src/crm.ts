@@ -17,6 +17,7 @@ export type Env = {
   VAPID_JWK?: string;
   PUBLIC_URL: string;
   SITE_MODEL?: string;            // modelo de OpenRouter para escribir las webs demo (si no, OPENROUTER_MODEL)
+  LLM_MODELS?: string;           // modelos de OpenRouter en orden, separados por comas, para todo el texto (si no, OPENROUTER_MODEL)
   DEMO_MODEL?: string;           // modelos de OpenRouter para la demo, separados por comas (si no, OPENROUTER_MODEL)
   DEMO_FALLBACK_MODEL?: string;  // modelo de Workers AI si OpenRouter falla en la demo (si no, CLASSIFY_MODEL)
   SOCRATA_APP_TOKEN?: string;

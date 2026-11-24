@@ -2,6 +2,7 @@
 import type { Env } from "./crm.ts";
 import type { Color, Msg } from "./timer.ts";
 import { humanDuration } from "./timer.ts";
+import { complete } from "./llm.ts";
 
 /** Tono de todos los mensajes: español neutro con "tú". Nada de voseo ni modismos argentinos. */
 export const TONE =
@@ -139,12 +140,5 @@ export async function draft(
     .filter((m) => (m.kind ?? "message") === "message")
     .slice(-12)
     .map((m) => ({ role: m.role === "user" ? "user" : "assistant", content: (opts.autoTimes ?? []).includes(m.created_at) ? `[AUTOMÁTICO] ${m.content}` : m.content }));
-  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${env.OPENROUTER_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: env.OPENROUTER_MODEL, max_tokens: 400, messages: [{ role: "system", content: system }, ...convo] }),
-  });
-  if (!res.ok) throw new Error(`OpenRouter → ${res.status}`);
-  const data: any = await res.json();
-  return String(data?.choices?.[0]?.message?.content ?? "").trim();
+  return complete(env, [{ role: "system", content: system }, ...convo], 400);
 }
