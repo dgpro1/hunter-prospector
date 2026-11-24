@@ -10,7 +10,7 @@ import { accessCheck } from "./access.ts";
 import { sendTest, verifySent } from "./auto.ts";
 import { watchLines } from "./linewatch.ts";
 import { authorized, login, loginPage, pwaAsset } from "./pwa.ts";
-import { demoChat, getDemo, renderDemo, trackView } from "./demo.ts";
+import { demoChat, demoEvent, getDemo, renderDemo, trackView } from "./demo.ts";
 import { addNote, leadForChat, setStage } from "./store.ts";
 import { renderChat, renderQueue, renderSim } from "./views.ts";
 import { fillToday, rewriteOpeners, getQuota, importLeads, markLead, parseHunt, setQuota, today } from "./leads.ts";
@@ -31,8 +31,8 @@ export default {
     if (url.pathname === "/") return Response.redirect(new URL("/panel", url).toString(), 302);
     if (url.pathname === "/health") return new Response("ok");
     if (url.pathname === "/webhooks/crm" && req.method === "POST") return webhook(req, env, ctx);
-    const demo = url.pathname.match(/^\/demo\/([a-z0-9-]+)(\/chat)?$/);
-    if (demo) return demoRoute(req, env, ctx, demo[1], Boolean(demo[2]));
+    const demo = url.pathname.match(/^\/demo\/([a-z0-9-]+)(\/chat|\/evento)?$/);
+    if (demo) return demoRoute(req, env, ctx, demo[1], demo[2] ?? "");
     const web = url.pathname.match(/^\/w\/([a-z0-9-]+)(\/visto|\/quiero)?\/?$/);
     if (web) return webPublic(req, env, web[1], web[2]);
     const asset = pwaAsset(url.pathname);
@@ -451,13 +451,18 @@ async function fakeBusiness(req: Request, env: Env): Promise<Response> {
 }
 
 /** Demo pública: sin contraseña, con tope diario de mensajes. */
-async function demoRoute(req: Request, env: Env, ctx: ExecutionContext, slug: string, chat: boolean): Promise<Response> {
+async function demoRoute(req: Request, env: Env, ctx: ExecutionContext, slug: string, sub: string): Promise<Response> {
   const d = await getDemo(env, slug);
   if (!d) return new Response("Esta demo ya no está disponible.", { status: 404 });
-  if (chat && req.method === "POST") {
+  if (sub === "/evento" && req.method === "POST") {
+    const body: any = await req.json().catch(() => ({}));
+    ctx.waitUntil(demoEvent(env, d, body).catch((e) => console.error("demo evento", e)));
+    return new Response(null, { status: 204 });
+  }
+  if (sub === "/chat" && req.method === "POST") {
     const body: any = await req.json().catch(() => ({}));
     try {
-      return Response.json(await demoChat(env, d, Array.isArray(body?.messages) ? body.messages : [], Boolean(body?.own)));
+      return Response.json(await demoChat(env, d, Array.isArray(body?.messages) ? body.messages : [], Boolean(body?.own), body?.session));
     } catch (e) {
       await env.DB.prepare("INSERT INTO settings (key, value) VALUES ('llm_last_error', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
         .bind(`${new Date().toISOString()} total: ${String((e as Error)?.message ?? e)}`.slice(0, 500)).run().catch(() => {});

@@ -99,7 +99,10 @@ export async function tick(env: Env, date = new Date()): Promise<string> {
   if ((await setting(env, "auto")) !== "on") return "apagado";
   if (!sendReady(env)) return "sin CRM";
   const day = today(date);
-  if ((await setting(env, "filled_day")) !== day) {
+  // Llena el cupo al empezar el día y también si se vació antes de tiempo (una apertura que falló
+  // dejaba el día con cupo libre y sin nadie a quien escribir hasta el día siguiente).
+  const waiting = await env.DB.prepare("SELECT 1 FROM leads WHERE status = 'hoy' AND day = ? LIMIT 1").bind(day).first();
+  if ((await setting(env, "filled_day")) !== day || !waiting) {
     await fillToday(env);
     await setSetting(env, "filled_day", day);
   }

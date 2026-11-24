@@ -121,7 +121,8 @@ export async function fillToday(env: Env): Promise<number> {
   for (let i = 0; i < list.length; i += 5) {
     await Promise.all(list.slice(i, i + 5).map(async (lead: any, j: number) => {
       const variant = (i + j + (used?.n ?? 0)) % 2 === 0 ? "A" : "B";
-      const opener = await composeOpener(env, lead, variant);
+      const opener = await composeOpener(env, lead, variant).catch((e) => { console.error("apertura", lead.phone, e); return null; });
+      if (!opener) return; // se queda en la cola y se intenta en la siguiente vuelta
       await env.DB.prepare("UPDATE leads SET status = 'hoy', day = ?, variant = ?, opener = ?, opener_v = ? WHERE phone = ?")
         .bind(day, variant, opener, OPENER_V, lead.phone).run();
     }));
@@ -204,7 +205,8 @@ export async function rewriteOpeners(env: Env, max = 10): Promise<number> {
   for (let i = 0; i < (rows.results ?? []).length; i += 5) {
     await Promise.all((rows.results ?? []).slice(i, i + 5).map(async (lead: any) => {
       const variant = lead.variant ?? "A";
-      const opener = await composeOpener(env, lead, variant);
+      const opener = await composeOpener(env, lead, variant).catch((e) => { console.error("apertura", lead.phone, e); return null; });
+      if (!opener) return; // se queda en la cola y se intenta en la siguiente vuelta
       await env.DB.prepare("UPDATE leads SET opener = ?, opener_v = ? WHERE phone = ?").bind(opener, OPENER_V, lead.phone).run();
     }));
   }
